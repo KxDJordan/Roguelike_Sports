@@ -9,6 +9,7 @@ import { cloneTactics, defaultPlayerInstructions, defaultTeamInstructions } from
 import { AIR_K, PITCH_L, PITCH_W, kickSpeed } from '../src/sim/constants';
 import { WEATHER, Weather } from '../src/sim/weather';
 import { freshFx } from '../src/render/pitchRenderer';
+import { ReplayRecorder, ReplayView } from '../src/render/replay';
 
 function teams(seed = 42): [TeamSetup, TeamSetup] {
   const rng = new Rng(seed);
@@ -214,5 +215,38 @@ describe('effects feed', () => {
     }
     expect(m.fxTotal).toBeGreaterThan(250);
     expect(delivered).toBe(m.fxTotal);
+  });
+});
+
+describe('instant replay', () => {
+  it('records the build-up to a goal and plays it back ending with the ball in the net', () => {
+    const [h, a] = teams(31);
+    const m = new Match(copy(h), copy(a), 12);
+    const rec = new ReplayRecorder(6);
+    let seen = 0;
+    let clip: ReturnType<ReplayRecorder['clip']> | null = null;
+    while (!clip && !m.isFinished()) {
+      if (m.phase === 'halftime') m.startSecondHalf();
+      const goals = m.score[0] + m.score[1];
+      m.step();
+      const scored = m.score[0] + m.score[1] > goals;
+      rec.record(m, freshFx(m, seen), scored);
+      seen = m.fxTotal;
+      if (scored) clip = rec.clip();
+    }
+    expect(clip).not.toBeNull();
+    expect(clip!.length).toBeGreaterThan(20);
+    const view = new ReplayView(m, clip!);
+    let maxJump = 0;
+    for (let i = 1; i < view.length; i++) {
+      view.show(i);
+      maxJump = Math.max(maxJump, Math.hypot(view.ball.pos.x - view.ball.prevPos.x, view.ball.pos.y - view.ball.prevPos.y));
+    }
+    // Continuous play (no teleports across a restart), finishing over the goal line.
+    expect(maxJump).toBeLessThan(2.5);
+    expect(view.ball.pos.x < 0.5 || view.ball.pos.x > PITCH_L - 0.5).toBe(true);
+    expect(view.fx.some((f) => f.type === 'goal')).toBe(true);
+    // The live match is untouched by the replay's players.
+    expect(view.players[3].pos).not.toBe(m.players[3].pos);
   });
 });

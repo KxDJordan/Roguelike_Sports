@@ -1,5 +1,5 @@
 import * as C from '../sim/constants';
-import type { Match, SimPlayer } from '../sim/match';
+import type { Ball, Match, SimPlayer } from '../sim/match';
 import type { Fx } from '../sim/stats';
 import { Vec, clamp, lerp, lerpVec } from '../sim/vec';
 import { inkFor, keeperKits } from '../data/kits';
@@ -57,6 +57,16 @@ interface Streak {
 }
 
 export type CameraMode = 'full' | 'follow';
+
+/** What the renderer needs from a match: the live one, or an instant replay standing in for it. */
+export interface MatchView {
+  ball: Pick<Ball, 'pos' | 'prevPos' | 'vel' | 'owner' | 'height'> & { /** Truthy while a shot is in flight. */ shot?: unknown };
+  onPitch: SimPlayer[];
+  players: SimPlayer[];
+  teams: Match['teams'];
+  fx: Fx[];
+  fxTotal: number;
+}
 
 /**
  * Broadcast-style match renderer. A cached stadium layer is drawn under a camera that either
@@ -117,6 +127,22 @@ export class PitchRenderer {
     this.vignette.addColorStop(1, 'rgba(0,0,0,0.45)');
   }
 
+  /** Treat everything m has emitted so far as seen (when switching between live play and a replay). */
+  syncFx(m: MatchView): void {
+    this.fxSeen = m.fxTotal;
+  }
+
+  /** Drop lingering particles, pop-ups, streaks and the ball trail (e.g. before a replay starts). */
+  clearEffects(): void {
+    this.particles = [];
+    this.rings = [];
+    this.floaters = [];
+    this.streaks = [];
+    this.trail = [];
+    this.flashUntil = 0;
+    this.shakeUntil = 0;
+  }
+
   // ---------------------------------------------------------------- transforms
 
   /** Pitch meters to CSS pixels. */
@@ -141,7 +167,7 @@ export class PitchRenderer {
     this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
   }
 
-  private updateCamera(m: Match, ball: Vec, dt: number): void {
+  private updateCamera(m: MatchView, ball: Vec, dt: number): void {
     const follow = this.camera === 'follow';
     const zoomTarget = follow ? (this.vertical ? 1.75 : 2.1) : 1;
     this.cam.zoom = lerp(this.cam.zoom, zoomTarget, Math.min(1, dt * 3));
@@ -167,7 +193,7 @@ export class PitchRenderer {
 
   // ---------------------------------------------------------------- frame
 
-  render(m: Match, alpha: number): void {
+  render(m: MatchView, alpha: number): void {
     const now = performance.now();
     const dt = Math.min(0.1, (now - this.lastNow) / 1000);
     this.lastNow = now;
@@ -525,7 +551,7 @@ export class PitchRenderer {
     ctx.fill();
   }
 
-  private drawPlayer(m: Match, p: SimPlayer, alpha: number, r0: number, color: string, now: number): void {
+  private drawPlayer(m: MatchView, p: SimPlayer, alpha: number, r0: number, color: string, now: number): void {
     const ctx = this.ctx;
     const pos = lerpVec(p.prevPos, p.pos, alpha);
     const c = this.tx(pos);
@@ -588,7 +614,7 @@ export class PitchRenderer {
     }
   }
 
-  private drawNameTag(m: Match, p: SimPlayer, alpha: number, r: number): void {
+  private drawNameTag(m: MatchView, p: SimPlayer, alpha: number, r: number): void {
     const ctx = this.ctx;
     const c = this.tx(lerpVec(p.prevPos, p.pos, alpha));
     const name = p.data.name.split(' ').slice(-1)[0].toUpperCase();
@@ -607,7 +633,7 @@ export class PitchRenderer {
     ctx.fillText(name, c.x, y + 7.5);
   }
 
-  private drawBall(m: Match, ball: Vec, dt: number, shadowPass: boolean): void {
+  private drawBall(m: MatchView, ball: Vec, dt: number, shadowPass: boolean): void {
     const ctx = this.ctx;
     const b = m.ball;
     const h = b.height;
@@ -665,7 +691,7 @@ export class PitchRenderer {
     ctx.stroke();
   }
 
-  private drawIntent(m: Match, alpha: number): void {
+  private drawIntent(m: MatchView, alpha: number): void {
     const ctx = this.ctx;
     for (const p of m.onPitch) {
       if (p.action !== 'run' && p.action !== 'press' && p.action !== 'dribble' && p.action !== 'block' && p.action !== 'box') continue;
@@ -689,12 +715,12 @@ export class PitchRenderer {
 
   // ---------------------------------------------------------------- effects
 
-  private consumeFx(m: Match, now: number): void {
+  private consumeFx(m: MatchView, now: number): void {
     for (const f of freshFx(m, this.fxSeen)) this.spawn(m, f, now);
     this.fxSeen = m.fxTotal;
   }
 
-  private spawn(m: Match, f: Fx, now: number): void {
+  private spawn(m: MatchView, f: Fx, now: number): void {
     const color = m.teams[f.team].color;
     switch (f.type) {
       case 'pass':
@@ -1064,7 +1090,7 @@ function mod(a: number, n: number): number {
 }
 
 /** Effects the match has emitted since a consumer last saw `seen` of them in total. */
-export function freshFx(m: Match, seen: number): Fx[] {
+export function freshFx(m: MatchView, seen: number): Fx[] {
   const n = m.fxTotal < seen ? m.fx.length : Math.min(m.fx.length, m.fxTotal - seen);
   return n > 0 ? m.fx.slice(m.fx.length - n) : [];
 }
