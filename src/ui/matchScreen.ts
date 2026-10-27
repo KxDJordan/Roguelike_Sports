@@ -19,6 +19,8 @@ const CAM_KEY = 'rs.camera';
 /** How long the GOAL cut-in shows, and how much of the build-up the replay covers (sim seconds). */
 const CUTIN_SECONDS = 2.4;
 const REPLAY_SECONDS = 5;
+/** Replay letterbox bars, as a fraction of the pitch height (matches .rp-bar in style.css). */
+const LETTERBOX = 0.07;
 
 const ICON: Partial<Record<MatchEvent['type'], string>> = {
   goal: '⚽',
@@ -273,7 +275,8 @@ export function matchScreen(opts: MatchScreenOptions): { el: HTMLElement; destro
     banner.classList.remove('show');
     renderer.clearEffects();
     renderer.syncFx(c.view);
-    renderer.camera = 'follow';
+    renderer.camera = 'replay';
+    renderer.letterbox = LETTERBOX;
     renderer.showIntent = false;
     stage.classList.add('replaying');
   }
@@ -282,6 +285,7 @@ export function matchScreen(opts: MatchScreenOptions): { el: HTMLElement; destro
     const c = celebration;
     if (!c) return;
     renderer.camera = c.camera;
+    renderer.letterbox = 0;
     renderer.showIntent = c.intent;
     renderer.clearEffects();
     renderer.syncFx(match);
@@ -433,7 +437,7 @@ export function matchScreen(opts: MatchScreenOptions): { el: HTMLElement; destro
     layer.replaceChildren(
       h(
         'div',
-        { class: 'modal results pop-in' },
+        { class: 'modal results-modal pop-in' },
         h('div', { class: 'modal-kicker' }, title),
         h(
           'div',

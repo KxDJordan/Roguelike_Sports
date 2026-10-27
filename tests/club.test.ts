@@ -4,8 +4,10 @@ import { Match } from '../src/sim/match';
 import { makeTeam } from '../src/data/generator';
 import { overall, xpToNext } from '../src/data/player';
 import { cloneTactics } from '../src/tactics/instructions';
-import { Club, MIN_SQUAD, applyMatch, sellPlayer, trainAttribute } from '../src/game/club';
-import { PACKS, openPack } from '../src/game/packs';
+import { Club, MIN_SQUAD, applyMatch, collectCosmetic, ensureLocker, equip, renameClub, sellPlayer, trainAttribute } from '../src/game/club';
+import { STARTER, kitById } from '../src/data/cosmetics';
+import { startSeason } from '../src/game/career';
+import { PACKS, openCosmetic, openPack } from '../src/game/packs';
 import { playerRating } from '../src/game/ratings';
 
 function club(seed = 11): Club {
@@ -117,5 +119,55 @@ describe('defensive AI', () => {
     }
     expect(blocks / 4).toBeGreaterThan(2);
     expect(interceptions / 4).toBeGreaterThan(8);
+  });
+});
+
+describe('club identity and cosmetics', () => {
+  it('starts with the starter kit, ball and crest, and wears them', () => {
+    const c = club();
+    ensureLocker(c);
+    expect(c.look).toEqual({ kit: STARTER.kit, ball: STARTER.ball, crest: STARTER.crest });
+    expect(c.team.color).toBe(kitById(STARTER.kit).primary);
+    expect(c.team.kit?.pattern).toBe('solid');
+    expect(c.team.ball).toBe(STARTER.ball);
+  });
+
+  it('collects new items, pays coins for duplicates, and equips only what it owns', () => {
+    const c = club();
+    ensureLocker(c);
+    const coins = c.coins;
+    expect(equip(c, 'kit', 'magpie')).toBe(false);
+    expect(collectCosmetic(c, 'kit', 'magpie')).toBe(0);
+    expect(c.locker!.kit).toContain('magpie');
+    expect(collectCosmetic(c, 'kit', 'magpie')).toBeGreaterThan(0);
+    expect(c.coins).toBeGreaterThan(coins);
+    expect(equip(c, 'kit', 'magpie')).toBe(true);
+    expect(c.team.kit).toEqual({ primary: '#111111', secondary: '#f5f5f5', pattern: 'stripes' });
+    expect(c.team.color).toBe('#111111');
+  });
+
+  it('renames the club, validating the name and 3-letter code, and updates the league table', () => {
+    const c = club();
+    c.career = startSeason(c, 0, 1, [], 3);
+    expect(renameClub(c, 'X', 'ABC')).not.toBeNull();
+    expect(renameClub(c, 'Real Roguelike', 'RR')).not.toBeNull();
+    expect(renameClub(c, '  Real   Roguelike ', 'rrl')).toBeNull();
+    expect(c.team.name).toBe('Real Roguelike');
+    expect(c.team.short).toBe('RRL');
+    expect(c.career.teams.find((t) => t.id === 'you')!.short).toBe('RRL');
+  });
+
+  it('gold packs always hold a cosmetic; bronze ones sometimes', () => {
+    const gold = PACKS.find((p) => p.id === 'gold')!;
+    const bronze = PACKS.find((p) => p.id === 'bronze')!;
+    let goldHits = 0;
+    let bronzeHits = 0;
+    for (let i = 0; i < 60; i++) {
+      if (openCosmetic(new Rng(i + 1), gold)) goldHits++;
+      if (openCosmetic(new Rng(i + 1), bronze)) bronzeHits++;
+    }
+    expect(goldHits).toBe(60);
+    expect(bronzeHits).toBeGreaterThan(5);
+    expect(bronzeHits).toBeLessThan(40);
   });
 });

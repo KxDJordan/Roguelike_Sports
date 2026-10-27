@@ -1,10 +1,11 @@
 import { sound } from '../audio/sound';
 import { h, toast } from './dom';
-import { playerCard } from './playerCard';
+import { cosmeticCard, playerCard, setCardLook } from './playerCard';
+import { CosmeticDef, CosmeticKind, KIND_NAME } from '../data/cosmetics';
 import { Rng } from '../sim/rng';
 import { Player, marketValue } from '../data/player';
-import { Club, MAX_SQUAD, addPlayer, canAdd, saveClub } from '../game/club';
-import { PACKS, PackDef, openPack } from '../game/packs';
+import { Club, MAX_SQUAD, addPlayer, canAdd, collectCosmetic, equip, saveClub } from '../game/club';
+import { PACKS, PackDef, openCosmetic, openPack } from '../game/packs';
 
 export function storeScreen(club: Club, onBack: () => void, coinsEl: () => HTMLElement): HTMLElement {
   const root = h('div', { class: 'screen store fade-in' });
@@ -54,12 +55,53 @@ export function storeScreen(club: Club, onBack: () => void, coinsEl: () => HTMLE
     club.coins -= pack.cost;
     saveClub(club);
     const taken = new Set(club.team.squad.map((p) => p.number));
-    const players = openPack(new Rng((Date.now() ^ (Math.random() * 1e9)) >>> 0), pack, taken);
-    reveal(pack, players);
+    const rng = new Rng((Date.now() ^ (Math.random() * 1e9)) >>> 0);
+    const players = openPack(rng, pack, taken);
+    const extra = openCosmetic(rng, pack);
+    reveal(pack, players, extra);
+  }
+
+  /**
+   * A kit, ball or crest card. It goes straight into the locker (or turns into coins if the club
+   * already has it), and can be equipped from here.
+   */
+  function cosmeticSlot(pack: PackDef, item: { kind: CosmeticKind; def: CosmeticDef }): HTMLElement {
+    const dupCoins = collectCosmetic(club, item.kind, item.def.id);
+    const slot = h('div', { class: 'reveal-slot' });
+    const flip = h(
+      'div',
+      { class: `flip ${item.def.rarity}` },
+      h('div', { class: 'flip-back' }, h('b', {}, pack.name.split(' ')[0].toUpperCase())),
+      h('div', { class: 'flip-front' }, cosmeticCard(item.kind, item.def)),
+    );
+    const actions = h('div', { class: 'reveal-actions' });
+    if (dupCoins) actions.append(h('span', { class: 'muted' }, `Duplicate · +${dupCoins} coins`));
+    else {
+      const equipBtn = h(
+        'button',
+        {
+          class: 'primary',
+          onclick: () => {
+            equip(club, item.kind, item.def.id);
+            setCardLook(club.team.kit!, club.team.crest!);
+            actions.replaceChildren(h('span', { class: 'muted' }, 'Equipped ✓'));
+          },
+        },
+        'Equip',
+      );
+      actions.append(h('span', { class: 'muted' }, `New ${KIND_NAME[item.kind].toLowerCase()}!`), equipBtn);
+    }
+    slot.append(flip, actions);
+    setTimeout(() => {
+      flip.classList.add('flipped');
+      sound.reveal(item.def.rarity);
+      slot.classList.add('revealed');
+    }, 500);
+    return slot;
   }
 
   /** Cards drop in face down, then flip one by one, saving the best for last. */
-  function reveal(pack: PackDef, players: Player[]): void {
+  function reveal(pack: PackDef, players: Player[], extra: { kind: CosmeticKind; def: CosmeticDef } | null): void {
     const decided = new Set<string>();
     const layer = h('div', { class: 'layer reveal-layer fade-in' });
     const row = h('div', { class: 'reveal-row' });
@@ -69,6 +111,8 @@ export function storeScreen(club: Club, onBack: () => void, coinsEl: () => HTMLE
       render();
     };
 
+    if (extra) row.append(cosmeticSlot(pack, extra));
+    const offset = extra ? 1 : 0;
     players.forEach((p, i) => {
       const slot = h('div', { class: 'reveal-slot' });
       const flip = h(
@@ -110,7 +154,7 @@ export function storeScreen(club: Club, onBack: () => void, coinsEl: () => HTMLE
       );
       slot.append(flip, actions);
       row.append(slot);
-      const delay = 500 + i * 900 + (i === players.length - 1 && (p.rarity === 'gold' || p.rarity === 'elite') ? 500 : 0);
+      const delay = 500 + (i + offset) * 900 + (i === players.length - 1 && (p.rarity === 'gold' || p.rarity === 'elite') ? 500 : 0);
       setTimeout(() => {
         flip.classList.add('flipped');
         sound.reveal(p.rarity);

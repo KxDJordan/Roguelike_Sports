@@ -5,6 +5,9 @@ import { AttrKey, Player, familiarity, marketValue, normalizePlayer, overall, ra
 import { grantSkills, migrateSkills, seededRand } from '../data/skills';
 import { FORMATIONS } from '../tactics/formations';
 import { playerRating } from './ratings';
+import type { Career } from './career';
+import { CosmeticKind, DUPLICATE_COINS, STARTER, ballById, cosmetic, crestById, kitById } from '../data/cosmetics';
+import type { Rarity } from '../data/player';
 
 const SAVE_KEY = 'rs.club.v2';
 const LEGACY_KEY = 'rs.club.v1';
@@ -22,6 +25,12 @@ export interface Club {
   record: { w: number; d: number; l: number; gf: number; ga: number };
   /** Most recent last. */
   results: Result[];
+  /** Kits, balls and crests the club owns (ids). */
+  locker?: Record<CosmeticKind, string[]>;
+  /** What it's wearing. */
+  look?: Record<CosmeticKind, string>;
+  /** League career, once started. */
+  career?: Career;
 }
 
 export interface RatedPlayer {
@@ -52,6 +61,7 @@ export function newClub(): Club {
     record: { w: 0, d: 0, l: 0, gf: 0, ga: 0 },
     results: [],
   };
+  ensureLocker(club);
   saveClub(club);
   return club;
 }
@@ -69,6 +79,7 @@ export function loadClub(): Club | null {
     if (raw) {
       const c = JSON.parse(raw) as Club;
       c.team.squad.forEach(upgradePlayer);
+      ensureLocker(c);
       return c;
     }
     // Carry an old single-team save forward.
@@ -77,6 +88,7 @@ export function loadClub(): Club | null {
       const team = JSON.parse(legacy) as TeamSetup;
       team.squad.forEach(upgradePlayer);
       const club: Club = { version: 2, team, coins: 1500, matchesPlayed: 0, record: { w: 0, d: 0, l: 0, gf: 0, ga: 0 }, results: [] };
+      ensureLocker(club);
       saveClub(club);
       return club;
     }
@@ -206,4 +218,72 @@ export function sellPlayer(club: Club, p: Player): boolean {
   club.coins += marketValue(p);
   saveClub(club);
   return true;
+}
+
+// ---------------------------------------------------------------- identity and cosmetics
+
+/** Give clubs (including ones saved before cosmetics existed) the starter look, and apply it. */
+export function ensureLocker(club: Club): void {
+  club.locker ??= { kit: [STARTER.kit], ball: [STARTER.ball], crest: [STARTER.crest] };
+  club.look ??= { ...STARTER };
+  for (const k of ['kit', 'ball', 'crest'] as CosmeticKind[]) if (!club.locker[k].includes(club.look[k])) club.locker[k].push(club.look[k]);
+  applyLook(club);
+}
+
+/** Dress the team in the equipped kit, ball and crest. */
+export function applyLook(club: Club): void {
+  const look = club.look!;
+  const kit = kitById(look.kit);
+  const crest = crestById(look.crest);
+  club.team.color = kit.primary;
+  club.team.kit = { primary: kit.primary, secondary: kit.secondary, pattern: kit.pattern };
+  club.team.ball = ballById(look.ball).id;
+  club.team.crest = { shape: crest.shape, emblem: crest.emblem };
+  const you = club.career?.teams.find((t) => t.id === 'you');
+  if (you) you.color = kit.primary;
+}
+
+export function equip(club: Club, kind: CosmeticKind, id: string): boolean {
+  if (!club.locker?.[kind].includes(id)) return false;
+  club.look![kind] = id;
+  applyLook(club);
+  saveClub(club);
+  return true;
+}
+
+/**
+ * Add a kit, ball or crest found in a pack. A duplicate is turned into coins instead.
+ * Returns the coins paid for a duplicate (0 when it was new).
+ */
+export function collectCosmetic(club: Club, kind: CosmeticKind, id: string): number {
+  ensureLocker(club);
+  if (club.locker![kind].includes(id)) {
+    const coins = DUPLICATE_COINS[(cosmetic(kind, id)?.rarity ?? 'bronze') as Rarity];
+    club.coins += coins;
+    saveClub(club);
+    return coins;
+  }
+  club.locker![kind].push(id);
+  saveClub(club);
+  return 0;
+}
+
+export const NAME_MAX = 22;
+
+/** Rename the club. The short code is the 3 letters shown on scoreboards and tables. */
+export function renameClub(club: Club, name: string, short: string): string | null {
+  const n = name.trim().replace(/\s+/g, ' ');
+  const s = short.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (n.length < 2 || n.length > NAME_MAX) return `Name must be 2-${NAME_MAX} characters.`;
+  if (s.length !== 3) return 'Short code must be 3 letters or numbers.';
+  club.team.name = n;
+  club.team.short = s;
+  // The league table shows your club too.
+  const you = club.career?.teams.find((t) => t.id === 'you');
+  if (you) {
+    you.name = n;
+    you.short = s;
+  }
+  saveClub(club);
+  return null;
 }

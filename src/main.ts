@@ -5,7 +5,8 @@ import { matchScreen } from './ui/matchScreen';
 import { squadScreen } from './ui/squadScreen';
 import { storeScreen } from './ui/storeScreen';
 import { reportScreen } from './ui/reportScreen';
-import { playerCard } from './ui/playerCard';
+import { playerCard, setCardLook } from './ui/playerCard';
+import { crestSvg } from './ui/art';
 import { Rng } from './sim/rng';
 import { TEAM_NAMES, TeamSetup, makeTeam, randomAiTactics } from './data/generator';
 import { overall } from './data/player';
@@ -15,6 +16,9 @@ import { Club, applyMatch, loadClub, newClub, saveClub, squadRating } from './ga
 import { Weather, rollWeather, windLabel } from './sim/weather';
 import { sound } from './audio/sound';
 import { loadSkillIcons } from './ui/skillIcons';
+import { careerScreen, roundScreen } from './ui/careerScreen';
+import { DIVISIONS, finishSeason, matchSide, nextOpponent, recordUserResult, rounds, seasonOver, simulateRound, startSeason, userFixture } from './game/career';
+import { Match } from './sim/match';
 
 const app = document.getElementById('app')!;
 let teardown: (() => void) | null = null;
@@ -27,6 +31,7 @@ function show(el: HTMLElement, destroy?: () => void): void {
 }
 
 let club: Club = loadClub() ?? newClub();
+setCardLook(club.team.kit!, club.team.crest!);
 
 const coins = () => h('div', { class: 'coins' }, h('span', { class: 'coin' }, club.coins.toLocaleString()));
 
@@ -42,7 +47,7 @@ function home(): void {
       h(
         'div',
         { class: 'club-hero', style: { '--kit': team.color } as unknown as Partial<CSSStyleDeclaration> },
-        h('div', { class: 'crest' }, h('span', {}, team.short)),
+        h('div', { class: 'crest art', title: 'Club identity', onclick: () => show(squadScreen(club, home, coins, 'club')) }, crestSvg(team.crest!, team.kit!, team.short)),
         h(
           'div',
           { class: 'club-meta' },
@@ -59,18 +64,27 @@ function home(): void {
         { class: 'tile-grid' },
         tile('🧠', 'Tactics', 'Formation, roles, instructions', () => editTactics()),
         tile('👥', 'Squad', 'Train, rest and sell players', () => show(squadScreen(club, home, coins))),
-        tile('🎴', 'Recruit', 'Open player packs', () => show(storeScreen(club, home, coins))),
-        tile('🏆', 'Career', 'Coming next phase', null),
+        tile('🎴', 'Recruit', 'Players, kits, balls & crests', () => show(storeScreen(club, home, coins))),
+        tile('🎽', 'Club', 'Name, kits, crest & ball', () => show(squadScreen(club, home, coins, 'club'))),
+        tile('🏆', 'Career', careerBlurb(), careerHub),
         tile('🎲', 'Cup Run', 'Roguelike runs · coming soon', null),
         tile('♻', 'New club', 'Start over', () => {
           if (confirm('Start over with a brand new club? Your current progress will be lost.')) {
             club = newClub();
+            setCardLook(club.team.kit!, club.team.crest!);
             home();
           }
         }),
       ),
     ),
   );
+}
+
+/** Career tile subtitle: where the season stands. */
+function careerBlurb(): string {
+  const c = club.career;
+  if (!c) return 'Leagues, promotion & prize money';
+  return seasonOver(c) ? `${DIVISIONS[c.tier].name} · season over` : `${DIVISIONS[c.tier].name} · MD ${c.round + 1}/${rounds(c)}`;
 }
 
 function tile(icon: string, title: string, sub: string, onclick: (() => void) | null): HTMLElement {
@@ -104,29 +118,46 @@ function makeOpponent(): TeamSetup {
   return opp;
 }
 
-function preMatch(opp = makeOpponent(), weather = rollWeather(new Rng((Date.now() * 104729) >>> 0))): void {
+const newWeather = () => rollWeather(new Rng((Date.now() * 104729) >>> 0));
+
+/** What a match is for: a friendly by default, or a league fixture that reports back when done. */
+interface MatchContext {
+  label: string;
+  /** After the match report; defaults to the home screen. */
+  after: (m: Match) => void;
+  back: () => void;
+}
+
+const FRIENDLY: MatchContext = { label: 'Friendly', after: () => home(), back: () => home() };
+
+function preMatch(opp = makeOpponent(), weather = newWeather(), ctx: MatchContext = FRIENDLY): void {
   show(
     tacticsScreen({
       team: club.team,
       tactics: club.team.tactics,
       title: `vs ${opp.name}`,
-      subtitle: `${opp.tactics.formation} · ${STYLE_NAMES.get(opp)} · rating ${squadRating(opp)} · ${weather.icon} ${[weather.name, windLabel(weather)].filter(Boolean).join(" ")}: ${weather.tip}`,
+      subtitle: `${ctx.label} · ${opp.tactics.formation} · ${STYLE_NAMES.get(opp)} · rating ${squadRating(opp)} · ${weather.icon} ${[weather.name, windLabel(weather)].filter(Boolean).join(' ')}: ${weather.tip}`,
       confirmLabel: 'Kick off',
       onConfirm: (t) => {
         club.team.tactics = t;
         saveClub(club);
-        playMatch(opp, weather);
+        playMatch(opp, weather, ctx);
       },
-      onCancel: home,
+      onCancel: ctx.back,
     }),
   );
 }
 
-function playMatch(opp: TeamSetup, weather: Weather): void {
-  // The match mutates tactics (subs, AI half-time changes), so give it copies.
-  const homeSide = { ...club.team, tactics: cloneTactics(club.team.tactics) };
-  // Away side changes kit if the colours are too close to tell apart.
-  const awaySide = { ...opp, color: contrastingKit(club.team.color, opp.color), tactics: cloneTactics(opp.tactics) };
+/** Both sides for a match: copies (the match mutates tactics), away kit changed if it clashes. */
+function sides(opp: TeamSetup): [TeamSetup, TeamSetup] {
+  return [
+    { ...club.team, tactics: cloneTactics(club.team.tactics) },
+    { ...opp, color: contrastingKit(club.team.color, opp.color), tactics: cloneTactics(opp.tactics) },
+  ];
+}
+
+function playMatch(opp: TeamSetup, weather: Weather, ctx: MatchContext): void {
+  const [homeSide, awaySide] = sides(opp);
   const screen = matchScreen({
     home: homeSide,
     away: awaySide,
@@ -134,10 +165,79 @@ function playMatch(opp: TeamSetup, weather: Weather): void {
     weather,
     onExit: (m) => {
       const report = applyMatch(club, m);
-      show(reportScreen(report, club.team, home));
+      show(reportScreen(report, club.team, () => ctx.after(m)));
     },
   });
   show(screen.el, screen.destroy);
+}
+
+// ---------------------------------------------------------------- career
+
+function careerHub(): void {
+  if (!club.career) {
+    club.career = startSeason(club, 0, 1, []);
+    saveClub(club);
+  }
+  // Your result is in but the rest of the matchday never finished (the app was closed): finish it.
+  if (userFixture(club.career)?.score) return void playOutRound();
+  show(
+    careerScreen(club, {
+      onBack: home,
+      coinsEl: coins,
+      onPlay: () => {
+        const { opp, ctx } = leagueMatch();
+        preMatch(opp, newWeather(), ctx);
+      },
+      onQuickSim: () => {
+        // Play the user's fixture headless and go straight to the report.
+        const { opp, ctx } = leagueMatch();
+        const [homeSide, awaySide] = sides(opp);
+        const m = new Match(homeSide, awaySide, (Date.now() ^ (Math.random() * 1e9)) >>> 0, newWeather());
+        m.aiTeams = [0, 1];
+        m.simulateFull();
+        const report = applyMatch(club, m);
+        show(reportScreen(report, club.team, () => ctx.after(m)));
+      },
+      onNextSeason: () => {
+        const rec = finishSeason(club);
+        saveClub(club);
+        sound.reveal(rec.outcome === 'champions' || rec.outcome === 'promoted' ? 'elite' : 'silver');
+        careerHub();
+      },
+    }),
+  );
+}
+
+/** The current league fixture as a match: the opponent's side and how to carry on afterwards. */
+function leagueMatch(): { opp: TeamSetup; ctx: MatchContext } {
+  const c = club.career!;
+  const nx = nextOpponent(c)!;
+  const opp = matchSide(nx.team);
+  STYLE_NAMES.set(opp, nx.team.style ?? '');
+  return {
+    opp,
+    ctx: {
+      label: `${DIVISIONS[c.tier].name} · Matchday ${c.round + 1} · ${nx.home ? 'Home' : 'Away'}`,
+      after: (m) => void finishMatchday(m),
+      back: careerHub,
+    },
+  };
+}
+
+/** Record the user's result, then play out the rest of the matchday on the results screen. */
+async function finishMatchday(m: Match): Promise<void> {
+  recordUserResult(club.career!, m.score[0], m.score[1]);
+  saveClub(club);
+  await playOutRound();
+}
+
+async function playOutRound(): Promise<void> {
+  const c = club.career!;
+  const screen = roundScreen(c, c.round);
+  show(screen.el);
+  await simulateRound(c, (_done, _total, f) => screen.update(f));
+  saveClub(club);
+  screen.done(careerHub);
 }
 
 // Browsers only allow audio after a user gesture: wake it on the first tap, and give the main buttons a click.

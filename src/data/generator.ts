@@ -1,3 +1,4 @@
+import type { CrestLook, KitLook } from './cosmetics';
 import { grantSkills } from './skills';
 import { Rng } from '../sim/rng';
 import { clamp } from '../sim/vec';
@@ -22,6 +23,12 @@ export interface TeamSetup {
   color: string;
   squad: Player[];
   tactics: Tactics;
+  /** Shirt pattern and second colour (the user's club; AI clubs wear plain shirts in `color`). */
+  kit?: KitLook;
+  /** Match-ball skin id (the home side's is used). */
+  ball?: string;
+  /** Club crest design, coloured by the kit. */
+  crest?: CrestLook;
 }
 
 const FIRST = [
@@ -164,4 +171,16 @@ export const TEAM_NAMES: { name: string; short: string; color: string }[] = [
   { name: 'Westmoor Town', short: 'WES', color: '#06d6a0' },
   { name: 'Kingsport', short: 'KIN', color: '#ef476f' },
   { name: 'Ashford Albion', short: 'ASH', color: '#118ab2' },
+  { name: 'Coldwater City', short: 'COL', color: '#4cc9f0' },
+  { name: 'Brackenridge', short: 'BRK', color: '#80b918' },
+  { name: 'Stonehaven FC', short: 'STO', color: '#6c757d' },
+  { name: 'Marlow Wanderers', short: 'MAR', color: '#f15bb5' },
+  { name: 'Eastgate Rangers', short: 'EAS', color: '#2a9d8f' },
+  { name: 'Foxhollow', short: 'FOX', color: '#e76f51' },
+  { name: 'Granite Bay', short: 'GRA', color: '#495057' },
+  { name: 'Larkspur Town', short: 'LAR', color: '#9b5de5' },
+  { name: 'Oakmere Athletic', short: 'OAK', color: '#386641' },
+  { name: 'Port Selwyn', short: 'POR', color: '#00b4d8' },
+  { name: 'Ravensholt', short: 'RAV', color: '#22223b' },
+  { name: 'Thornbury United', short: 'THO', color: '#bc4749' },
 ];

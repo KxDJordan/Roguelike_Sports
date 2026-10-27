@@ -1,5 +1,6 @@
 import { h, toast } from './dom';
 import { playerCard, fitColor, formClass, skillList } from './playerCard';
+import { clubPanel } from './clubPanel';
 import { SKILLS } from '../data/skills';
 import { sound } from '../audio/sound';
 import { ATTR_KEYS, AttrKey, Player, SLOT_GROUP, avgForm, marketValue, overall, xpToNext } from '../data/player';
@@ -28,9 +29,10 @@ type Filter = 'ALL' | 'GK' | 'DEF' | 'MID' | 'FWD';
 type Sort = 'ovr' | 'pos' | 'fit' | 'form';
 const POS_ORDER = ['GK', 'RB', 'RWB', 'CB', 'LB', 'LWB', 'DM', 'CM', 'RM', 'LM', 'AM', 'RW', 'LW', 'ST'];
 
-export function squadScreen(club: Club, onBack: () => void, coinsEl: () => HTMLElement): HTMLElement {
+export function squadScreen(club: Club, onBack: () => void, coinsEl: () => HTMLElement, startTab: 'players' | 'club' = 'players'): HTMLElement {
   let filter: Filter = 'ALL';
   let sort: Sort = 'ovr';
+  let tab = startTab;
   const root = h('div', { class: 'screen squad fade-in' });
 
   function render(): void {
@@ -42,14 +44,26 @@ export function squadScreen(club: Club, onBack: () => void, coinsEl: () => HTMLE
       if (sort === 'form') return (avgForm(b) ?? 0) - (avgForm(a) ?? 0);
       return overall(b) - overall(a);
     });
+    const header = h(
+      'header',
+      { class: 'bar' },
+      h('button', { class: 'ghost-btn', onclick: onBack }, '‹ Back'),
+      h('div', { class: 'bar-title' }, h('b', {}, team.name), h('div', { class: 'muted' }, `${team.squad.length} players`)),
+      coinsEl(),
+    );
+    const tabs = h(
+      'div',
+      { class: 'seg squad-tabs' },
+      h('button', { class: tab === 'players' ? 'on' : '', onclick: () => ((tab = 'players'), render()) }, 'Players'),
+      h('button', { class: tab === 'club' ? 'on' : '', onclick: () => ((tab = 'club'), render()) }, 'Club'),
+    );
+    if (tab === 'club') {
+      root.replaceChildren(header, tabs, clubPanel(club, render));
+      return;
+    }
     root.replaceChildren(
-      h(
-        'header',
-        { class: 'bar' },
-        h('button', { class: 'ghost-btn', onclick: onBack }, '‹ Back'),
-        h('div', { class: 'bar-title' }, h('b', {}, 'Squad'), h('div', { class: 'muted' }, `${team.squad.length} players`)),
-        coinsEl(),
-      ),
+      header,
+      tabs,
       h(
         'div',
         { class: 'squad-tools' },

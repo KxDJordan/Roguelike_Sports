@@ -1,6 +1,7 @@
 import { Rng } from '../sim/rng';
 import { Player, Rarity, SlotPos } from '../data/player';
 import { makePlayerAt } from '../data/generator';
+import { CosmeticDef, CosmeticKind, rollCosmetic } from '../data/cosmetics';
 
 export interface PackDef {
   id: string;
@@ -9,12 +10,14 @@ export interface PackDef {
   count: number;
   odds: Record<Rarity, number>;
   blurb: string;
+  /** Chance of a bonus kit, ball or crest card. */
+  cosmetic: number;
 }
 
 export const PACKS: PackDef[] = [
-  { id: 'bronze', name: 'Bronze Pack', cost: 600, count: 3, odds: { bronze: 0.74, silver: 0.23, gold: 0.03, elite: 0 }, blurb: '3 players. Mostly squad fillers, the odd gem.' },
-  { id: 'silver', name: 'Silver Pack', cost: 1800, count: 3, odds: { bronze: 0.15, silver: 0.62, gold: 0.21, elite: 0.02 }, blurb: '3 players. Solid first-team options.' },
-  { id: 'gold', name: 'Gold Pack', cost: 5000, count: 3, odds: { bronze: 0, silver: 0.3, gold: 0.58, elite: 0.12 }, blurb: '3 players. Real quality, a chance at an elite star.' },
+  { id: 'bronze', name: 'Bronze Pack', cost: 600, count: 3, odds: { bronze: 0.74, silver: 0.23, gold: 0.03, elite: 0 }, blurb: '3 players. Mostly squad fillers, the odd gem. 35% chance of a kit, ball or crest.', cosmetic: 0.35 },
+  { id: 'silver', name: 'Silver Pack', cost: 1800, count: 3, odds: { bronze: 0.15, silver: 0.62, gold: 0.21, elite: 0.02 }, blurb: '3 players. Solid first-team options. 60% chance of a kit, ball or crest.', cosmetic: 0.6 },
+  { id: 'gold', name: 'Gold Pack', cost: 5000, count: 3, odds: { bronze: 0, silver: 0.3, gold: 0.58, elite: 0.12 }, blurb: '3 players. Real quality, a chance at an elite star. Always a kit, ball or crest.', cosmetic: 1 },
 ];
 
 const RATING_RANGE: Record<Rarity, [number, number]> = {
@@ -71,3 +74,9 @@ export function openPack(rng: Rng, pack: PackDef, takenNumbers: Set<number>): Pl
 }
 
 export const rarityRank = (r: Rarity) => ['bronze', 'silver', 'gold', 'elite'].indexOf(r);
+
+/** The bonus kit, ball or crest card a pack may hold (rarity rolled on the pack's odds). */
+export function openCosmetic(rng: Rng, pack: PackDef): { kind: CosmeticKind; def: CosmeticDef } | null {
+  if (!rng.chance(pack.cosmetic)) return null;
+  return rollCosmetic(rng, rollRarity(rng, pack.odds));
+}

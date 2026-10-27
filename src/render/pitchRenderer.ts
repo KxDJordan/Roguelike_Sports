@@ -5,6 +5,7 @@ import { Vec, clamp, lerp, lerpVec } from '../sim/vec';
 import { inkFor, keeperKits } from '../data/kits';
 import { WEATHER, Weather } from '../sim/weather';
 import { SKILLS, SkillId } from '../data/skills';
+import { KitLook, ballById } from '../data/cosmetics';
 import { skillGlyph } from '../ui/skillIcons';
 
 /** Meters of stadium drawn around the pitch. */
@@ -56,7 +57,7 @@ interface Streak {
   curve: number;
 }
 
-export type CameraMode = 'full' | 'follow';
+export type CameraMode = 'full' | 'follow' | 'replay';
 
 /** What the renderer needs from a match: the live one, or an instant replay standing in for it. */
 export interface MatchView {
@@ -84,6 +85,9 @@ export class PitchRenderer {
   vertical = false;
   showIntent = false;
   camera: CameraMode = 'full';
+  /** Fraction of the canvas height covered by letterbox bars, top and bottom (replays). */
+  letterbox = 0;
+  private lb = 0;
   weather: Weather = WEATHER.clear;
   /** Called when lightning flashes, so the match screen can play thunder. */
   onLightning: (() => void) | null = null;
@@ -118,10 +122,6 @@ export class PitchRenderer {
     this.canvas.width = Math.round(this.w * this.dpr);
     this.canvas.height = Math.round(this.h * this.dpr);
     this.vertical = this.h > this.w * 1.05;
-    const along = C.PITCH_L + 8;
-    const across = C.PITCH_W + 8;
-    const [wSpan, hSpan] = this.vertical ? [across, along] : [along, across];
-    this.baseScale = Math.min(this.w / wSpan, this.h / hSpan);
     this.vignette = this.ctx.createRadialGradient(this.w / 2, this.h / 2, Math.min(this.w, this.h) * 0.35, this.w / 2, this.h / 2, Math.max(this.w, this.h) * 0.75);
     this.vignette.addColorStop(0, 'rgba(0,0,0,0)');
     this.vignette.addColorStop(1, 'rgba(0,0,0,0.45)');
@@ -168,23 +168,39 @@ export class PitchRenderer {
   }
 
   private updateCamera(m: MatchView, ball: Vec, dt: number): void {
+    // Letterbox bars (replays) hide the top and bottom of the canvas: fit the view between them.
+    this.lb = lerp(this.lb, this.letterbox, Math.min(1, dt * 8));
+    const visH = this.h * (1 - 2 * this.lb);
+    const along = C.PITCH_L + 8;
+    const across = C.PITCH_W + 8;
+    const [wSpan, hSpan] = this.vertical ? [across, along] : [along, across];
+    this.baseScale = Math.min(this.w / wSpan, visH / hSpan);
     const follow = this.camera === 'follow';
-    const zoomTarget = follow ? (this.vertical ? 1.75 : 2.1) : 1;
+    const replay = this.camera === 'replay';
+    const zoomTarget = replay ? (this.vertical ? 1.35 : 1.6) : follow ? (this.vertical ? 1.75 : 2.1) : 1;
     this.cam.zoom = lerp(this.cam.zoom, zoomTarget, Math.min(1, dt * 3));
     this.s = this.baseScale * this.cam.zoom;
     let tx = C.PITCH_L / 2;
     let ty = C.PITCH_W / 2;
-    if (follow) {
+    if (follow || replay) {
       const lead = m.ball.vel;
       tx = ball.x + clamp(lead.x * 0.35, -8, 8);
       ty = ball.y + clamp(lead.y * 0.35, -6, 6);
     }
-    const k = Math.min(1, dt * (follow ? 2.6 : 4));
+    if (replay) {
+      // Near goal, frame the goal as well as the ball so the finish is always in shot.
+      const gx = ball.x < C.PITCH_L / 2 ? 0 : C.PITCH_L;
+      const pull = clamp((36 - Math.hypot(ball.x - gx, ball.y - C.PITCH_W / 2)) / 24, 0, 1) * 0.5;
+      tx = lerp(tx, gx, pull);
+      ty = lerp(ty, C.PITCH_W / 2, pull);
+    }
+    // The replay camera keeps right up with a shot; live cameras glide.
+    const k = Math.min(1, dt * (replay ? 7 : follow ? 2.6 : 4));
     this.cam.x = lerp(this.cam.x, tx, k);
     this.cam.y = lerp(this.cam.y, ty, k);
     // Keep the view inside the stadium.
-    const halfX = (this.vertical ? this.h : this.w) / 2 / this.s;
-    const halfY = (this.vertical ? this.w : this.h) / 2 / this.s;
+    const halfX = (this.vertical ? visH : this.w) / 2 / this.s;
+    const halfY = (this.vertical ? this.w : visH) / 2 / this.s;
     const mx = Math.max(0, C.PITCH_L / 2 + 4 - halfX);
     const my = Math.max(0, C.PITCH_W / 2 + 4 - halfY);
     this.cam.x = clamp(this.cam.x, C.PITCH_L / 2 - mx, C.PITCH_L / 2 + mx);
@@ -586,8 +602,12 @@ export class PitchRenderer {
     ctx.beginPath();
     ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
     ctx.fill();
+    const kit = p.isGK ? undefined : m.teams[p.team].kit;
+    if (kit && kit.pattern !== 'solid' && color === m.teams[p.team].color) this.drawKitPattern(c.x, c.y, r, kit);
     ctx.lineWidth = 1.2;
     ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
     ctx.stroke();
 
     // Facing notch.
@@ -606,6 +626,12 @@ export class PitchRenderer {
       ctx.font = `800 ${Math.round(r * 1.0)}px 'Barlow Condensed', system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
+      if (kit && kit.pattern !== 'solid') {
+        // Outline the number so it reads over stripes and hoops.
+        ctx.lineWidth = Math.max(2, r * 0.28);
+        ctx.strokeStyle = inkFor(color) === '#fff' ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.85)';
+        ctx.strokeText(String(p.data.number), c.x, c.y + 0.5);
+      }
       ctx.fillText(String(p.data.number), c.x, c.y + 0.5);
     }
     if (p.yellows > 0) {
@@ -633,6 +659,63 @@ export class PitchRenderer {
     ctx.fillText(name, c.x, y + 7.5);
   }
 
+  /** The kit's pattern on a player disc, in the second colour, with the disc's shading over it. */
+  private drawKitPattern(x: number, y: number, r: number, kit: KitLook): void {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = kit.secondary;
+    ctx.strokeStyle = kit.secondary;
+    const L = x - r;
+    const T = y - r;
+    const D = r * 2;
+    switch (kit.pattern) {
+      case 'stripes':
+        for (const k of [0.18, 0.5, 0.82]) ctx.fillRect(L + D * k - D * 0.09, T, D * 0.18, D);
+        break;
+      case 'pinstripes':
+        for (let k = 0.1; k < 1; k += 0.16) ctx.fillRect(L + D * k, T, Math.max(0.8, D * 0.035), D);
+        break;
+      case 'hoops':
+        for (const k of [0.2, 0.52, 0.84]) ctx.fillRect(L, T + D * k - D * 0.09, D, D * 0.18);
+        break;
+      case 'halves':
+        ctx.fillRect(x, T, r, D);
+        break;
+      case 'quarters':
+        ctx.fillRect(x, T, r, r);
+        ctx.fillRect(L, y, r, r);
+        break;
+      case 'sash':
+        ctx.lineWidth = D * 0.28;
+        ctx.beginPath();
+        ctx.moveTo(L, T);
+        ctx.lineTo(L + D, T + D);
+        ctx.stroke();
+        break;
+      case 'chevron':
+        ctx.lineWidth = D * 0.2;
+        ctx.beginPath();
+        ctx.moveTo(L, T + D * 0.25);
+        ctx.lineTo(x, T + D * 0.62);
+        ctx.lineTo(L + D, T + D * 0.25);
+        ctx.stroke();
+        break;
+      default:
+        break;
+    }
+    // Keep the disc looking round: light from the top left, shadow bottom right.
+    const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r * 1.1);
+    g.addColorStop(0, 'rgba(255,255,255,0.28)');
+    g.addColorStop(0.55, 'rgba(255,255,255,0)');
+    g.addColorStop(1, 'rgba(0,0,0,0.35)');
+    ctx.fillStyle = g;
+    ctx.fillRect(L, T, D, D);
+    ctx.restore();
+  }
+
   private drawBall(m: MatchView, ball: Vec, dt: number, shadowPass: boolean): void {
     const ctx = this.ctx;
     const b = m.ball;
@@ -652,13 +735,16 @@ export class PitchRenderer {
     // Motion trail
     this.trail.push({ x: c.x, y: c.y - lift });
     if (this.trail.length > 10) this.trail.shift();
+    // The home side's ball skin (the user's club, in their matches).
+    const skin = ballById(m.teams[0].ball ?? 'classic');
     if (speed > 9 && b.owner === null) {
       const shot = !!b.shot;
       for (let i = 1; i < this.trail.length; i++) {
         const a = this.trail[i - 1];
         const q = this.trail[i];
-        ctx.strokeStyle = shot ? `rgba(255,220,120,${(i / this.trail.length) * 0.75})` : `rgba(255,255,255,${(i / this.trail.length) * 0.45})`;
-        ctx.lineWidth = r * 1.6 * (i / this.trail.length);
+        const f = i / this.trail.length;
+        ctx.strokeStyle = skin.glow ? withAlpha(skin.glow, f * 0.7) : shot ? `rgba(255,220,120,${f * 0.75})` : `rgba(255,255,255,${f * 0.45})`;
+        ctx.lineWidth = r * 1.6 * f;
         ctx.lineCap = 'round';
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
@@ -667,15 +753,21 @@ export class PitchRenderer {
       }
     }
     const by = c.y - lift;
+    if (skin.glow) {
+      ctx.shadowColor = skin.glow;
+      ctx.shadowBlur = r * 2.2;
+    }
     const g = ctx.createRadialGradient(c.x - r * 0.3, by - r * 0.35, r * 0.1, c.x, by, r);
-    g.addColorStop(0, '#ffffff');
-    g.addColorStop(1, '#cfd6de');
+    g.addColorStop(0, shade(skin.base, 0.45));
+    g.addColorStop(1, shade(skin.base, -0.18));
     ctx.fillStyle = g;
     ctx.beginPath();
     ctx.arc(c.x, by, r, 0, Math.PI * 2);
     ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
     // Panels that roll with the ball.
-    ctx.fillStyle = 'rgba(20,24,30,0.85)';
+    ctx.fillStyle = withAlpha(skin.panel, 0.88);
     for (let i = 0; i < 3; i++) {
       const a = this.ballRoll + (i * Math.PI * 2) / 3;
       const px = c.x + Math.cos(a) * r * 0.5;
@@ -1093,4 +1185,10 @@ function mod(a: number, n: number): number {
 export function freshFx(m: MatchView, seen: number): Fx[] {
   const n = m.fxTotal < seen ? m.fx.length : Math.min(m.fx.length, m.fxTotal - seen);
   return n > 0 ? m.fx.slice(m.fx.length - n) : [];
+}
+
+/** A #rrggbb colour with an alpha. */
+function withAlpha(hex: string, a: number): string {
+  const n = parseInt(hex.slice(1, 7), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a.toFixed(3)})`;
 }
