@@ -1,0 +1,209 @@
+import { Rng } from '../sim/rng';
+import type { Match } from '../sim/match';
+import { TeamSetup, makeTeam } from '../data/generator';
+import { AttrKey, Player, familiarity, marketValue, normalizePlayer, overall, rarityFor, xpToNext } from '../data/player';
+import { grantSkills, migrateSkills, seededRand } from '../data/skills';
+import { FORMATIONS } from '../tactics/formations';
+import { playerRating } from './ratings';
+
+const SAVE_KEY = 'rs.club.v2';
+const LEGACY_KEY = 'rs.club.v1';
+
+export const MAX_SQUAD = 26;
+export const MIN_SQUAD = 16;
+
+export type Result = 'W' | 'D' | 'L';
+
+export interface Club {
+  version: 2;
+  team: TeamSetup;
+  coins: number;
+  matchesPlayed: number;
+  record: { w: number; d: number; l: number; gf: number; ga: number };
+  /** Most recent last. */
+  results: Result[];
+}
+
+export interface RatedPlayer {
+  player: Player;
+  rating: number;
+  minutes: number;
+  goals: number;
+  assists: number;
+}
+
+export interface MatchReport {
+  result: Result;
+  score: [number, number];
+  opponent: string;
+  coins: { result: number; goals: number; total: number };
+  ratings: RatedPlayer[];
+  motm: RatedPlayer | null;
+  levelUps: { player: Player; level: number }[];
+}
+
+export function newClub(): Club {
+  const rng = new Rng((Date.now() ^ (Math.random() * 1e9)) >>> 0);
+  const club: Club = {
+    version: 2,
+    team: makeTeam(rng, 'Your Club', 'YOU', '#e63946', 62),
+    coins: 1500,
+    matchesPlayed: 0,
+    record: { w: 0, d: 0, l: 0, gf: 0, ga: 0 },
+    results: [],
+  };
+  saveClub(club);
+  return club;
+}
+
+/** Bring a saved player up to date: new fields, and skills for players saved before skills existed. */
+function upgradePlayer(p: Player): void {
+  normalizePlayer(p);
+  migrateSkills(p);
+  grantSkills(p, seededRand(p.id));
+}
+
+export function loadClub(): Club | null {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (raw) {
+      const c = JSON.parse(raw) as Club;
+      c.team.squad.forEach(upgradePlayer);
+      return c;
+    }
+    // Carry an old single-team save forward.
+    const legacy = localStorage.getItem(LEGACY_KEY);
+    if (legacy) {
+      const team = JSON.parse(legacy) as TeamSetup;
+      team.squad.forEach(upgradePlayer);
+      const club: Club = { version: 2, team, coins: 1500, matchesPlayed: 0, record: { w: 0, d: 0, l: 0, gf: 0, ga: 0 }, results: [] };
+      saveClub(club);
+      return club;
+    }
+  } catch {
+    // Corrupt or unavailable storage: start fresh.
+  }
+  return null;
+}
+
+export function saveClub(club: Club): void {
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(club));
+  } catch {
+    // Storage unavailable (private mode etc.): progress just won't persist.
+  }
+}
+
+export function squadRating(team: TeamSetup): number {
+  const xi = team.tactics.lineup.map((id) => team.squad.find((p) => p.id === id)!);
+  return Math.round(xi.reduce((s, p) => s + overall(p), 0) / xi.length);
+}
+
+/**
+ * Fold a finished match into the club: rewards, ratings and form, XP and level-ups,
+ * and fitness (players who played are tired; everyone recovers a little).
+ */
+export function applyMatch(club: Club, m: Match): MatchReport {
+  const [gf, ga] = m.score;
+  const result: Result = gf > ga ? 'W' : gf === ga ? 'D' : 'L';
+  club.matchesPlayed++;
+  club.record[result === 'W' ? 'w' : result === 'D' ? 'd' : 'l']++;
+  club.record.gf += gf;
+  club.record.ga += ga;
+  club.results = [...club.results, result].slice(-10);
+
+  const coins = { result: result === 'W' ? 400 : result === 'D' ? 200 : 100, goals: gf * 60, total: 0 };
+  coins.total = coins.result + coins.goals;
+  club.coins += coins.total;
+
+  const ratings: RatedPlayer[] = [];
+  const levelUps: MatchReport['levelUps'] = [];
+  const played = new Set<string>();
+  for (const sp of m.players) {
+    if (sp.team !== 0) continue;
+    const p = club.team.squad.find((q) => q.id === sp.data.id);
+    if (!p) continue;
+    played.add(p.id);
+    const minutes = m.minutesPlayed(sp);
+    const rating = playerRating(m, sp);
+    ratings.push({ player: p, rating, minutes, goals: sp.ps.goals, assists: sp.ps.assists });
+    p.form = [...p.form, rating].slice(-5);
+    p.condition = Math.min(1, sp.stamina + 0.15);
+    p.xp += Math.round(minutes * 0.8 + Math.max(0, rating - 6) * 25 + sp.ps.goals * 15);
+    while (p.xp >= xpToNext(p.level)) {
+      p.xp -= xpToNext(p.level);
+      p.level++;
+      p.skillPoints += 2;
+      levelUps.push({ player: p, level: p.level });
+    }
+  }
+  for (const p of club.team.squad) if (!played.has(p.id)) p.condition = Math.min(1, p.condition + 0.3);
+
+  ratings.sort((a, b) => b.rating - a.rating);
+  saveClub(club);
+  return { result, score: [gf, ga], opponent: m.teams[1].name, coins, ratings, motm: ratings[0] ?? null, levelUps };
+}
+
+/** Spend a skill point to raise one attribute. */
+export function trainAttribute(club: Club, p: Player, k: AttrKey): boolean {
+  if (p.skillPoints <= 0 || p.attrs[k] >= 99) return false;
+  p.skillPoints--;
+  p.attrs[k]++;
+  p.rarity = rarityFor(overall(p));
+  // Stepping up a rarity unlocks another skill.
+  grantSkills(p, Math.random);
+  saveClub(club);
+  return true;
+}
+
+export const skillPointCost = (p: Player) => 150 + p.level * 75;
+
+/** Buy an extra skill point with coins (private coaching). */
+export function buySkillPoint(club: Club, p: Player): boolean {
+  const cost = skillPointCost(p);
+  if (club.coins < cost) return false;
+  club.coins -= cost;
+  p.skillPoints++;
+  saveClub(club);
+  return true;
+}
+
+/** Rest a player: full fitness for coins. */
+export const restCost = (p: Player) => Math.round((1 - p.condition) * 300);
+
+export function restPlayer(club: Club, p: Player): boolean {
+  const cost = restCost(p);
+  if (cost <= 0 || club.coins < cost) return false;
+  club.coins -= cost;
+  p.condition = 1;
+  saveClub(club);
+  return true;
+}
+
+export function canAdd(club: Club): boolean {
+  return club.team.squad.length < MAX_SQUAD;
+}
+
+export function addPlayer(club: Club, p: Player): boolean {
+  if (!canAdd(club)) return false;
+  club.team.squad.push(p);
+  saveClub(club);
+  return true;
+}
+
+/** Sell a player for their market value; if they were in the XI, the best bench option fills in. */
+export function sellPlayer(club: Club, p: Player): boolean {
+  const team = club.team;
+  if (team.squad.length <= MIN_SQUAD) return false;
+  const slot = team.tactics.lineup.indexOf(p.id);
+  team.squad = team.squad.filter((q) => q.id !== p.id);
+  if (slot >= 0) {
+    const pos = FORMATIONS[team.tactics.formation].slots[slot].pos;
+    const bench = team.squad.filter((q) => !team.tactics.lineup.includes(q.id));
+    bench.sort((a, b) => overall(b) * familiarity(b, pos) - overall(a) * familiarity(a, pos));
+    team.tactics.lineup[slot] = bench[0].id;
+  }
+  club.coins += marketValue(p);
+  saveClub(club);
+  return true;
+}
