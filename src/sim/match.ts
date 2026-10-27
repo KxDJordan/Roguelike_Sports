@@ -371,8 +371,8 @@ export class Match {
     this.onPitch = this.players.filter((p) => p.active);
   }
 
-  private emit(type: EventType, team: TeamSide, text: string): void {
-    this.events.push({ minute: this.minute, type, team, text });
+  private emit(type: EventType, team: TeamSide, text: string, skill?: SkillId): void {
+    this.events.push({ minute: this.minute, type, team, text, skill });
   }
 
   /**
@@ -390,8 +390,8 @@ export class Match {
     this.stats[p.team].skills++;
     if (ready) {
       p.skillReadyAt = this.time + SKILL_REST;
-      this.effect('skill', p.pos, p.team, { label: `${def.icon} ${def.name}` });
-      this.emit('skill', p.team, `${def.icon} ${def.name}: ${p.data.name}`);
+      this.effect('skill', p.pos, p.team, { label: def.name, skill: id });
+      this.emit('skill', p.team, `${def.name}: ${p.data.name}`, id);
     }
     return true;
   }
@@ -1540,7 +1540,9 @@ export class Match {
       if (d > (o.skills.has('last_ditch') ? 1.7 : 0.95)) continue;
       s.checked.push(o.id);
       const lunge = this.useSkill(o, 'last_ditch');
-      if (!lunge && (d > 0.95 || !this.rng.chance(0.3 + (0.3 * this.attr(o, 'positioning')) / 99))) continue;
+      // A good finisher picks his spot past the man in front of him.
+      const placed = 1.35 - (0.7 * this.attr(this.players[s.shooter], 'finishing')) / 99;
+      if (!lunge && (d > 0.95 || !this.rng.chance((0.3 + (0.3 * this.attr(o, 'positioning')) / 99) * placed))) continue;
       // Blocked: the ball cannons off the defender.
       this.stats[o.team].blocks++;
       o.ps.blocks++;

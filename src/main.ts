@@ -14,6 +14,7 @@ import { cloneTactics } from './tactics/instructions';
 import { Club, applyMatch, loadClub, newClub, saveClub, squadRating } from './game/club';
 import { Weather, rollWeather, windLabel } from './sim/weather';
 import { sound } from './audio/sound';
+import { loadSkillIcons } from './ui/skillIcons';
 
 const app = document.getElementById('app')!;
 let teardown: (() => void) | null = null;
@@ -149,4 +150,5 @@ document.addEventListener(
   true,
 );
 
-home();
+// Skill artwork is prepared before the first screen so cards show it straight away.
+void loadSkillIcons().then(home);

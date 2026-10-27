@@ -1,3 +1,5 @@
+import type { SkillId } from '../data/skills';
+
 export interface TeamStats {
   shots: number;
   shotsOnTarget: number;
@@ -101,6 +103,8 @@ export interface MatchEvent {
   type: EventType;
   team: 0 | 1;
   text: string;
+  /** For skill events: which skill fired. */
+  skill?: SkillId;
 }
 
 /** Visual cues for the renderer (the sim never reads these). */
@@ -118,6 +122,8 @@ export interface Fx {
   red?: boolean;
   /** Bend of a curled pass: +1 or -1 for which way it swings. */
   curve?: number;
+  /** Skill behind a skill callout. */
+  skill?: SkillId;
   /** Callout text, e.g. a skill name. */
   label?: string;
 }

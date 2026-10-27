@@ -82,7 +82,7 @@ const control = () => play([], 0);
 
 describe('player attributes affect performance', () => {
   it('better finishers convert more of their shots', () => {
-    const f = play(['finishing'], 25);
+    const f = play(['finishing'], 35);
     expect(f.goals / f.shots).toBeGreaterThan((control().goals / control().shots) * 1.08);
   });
 

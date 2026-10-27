@@ -1,6 +1,7 @@
 import { h } from './dom';
 import { Player, Rarity, avgForm, faceStats, overall } from '../data/player';
 import { SKILLS, SKILL_SLOTS } from '../data/skills';
+import { skillIcon } from './skillIcons';
 
 export interface CardOptions {
   size?: 'sm' | 'md' | 'lg';
@@ -30,7 +31,7 @@ export function playerCard(p: Player, opts: CardOptions = {}): HTMLElement {
     ),
     h('div', { class: 'pc-avatar' }, h('span', {}, p.number)),
     h('div', { class: 'pc-name' }, lastName),
-    p.skills.length ? h('div', { class: 'pc-skills' }, ...p.skills.map((id) => h('i', { title: SKILLS[id].name }, SKILLS[id].icon))) : null,
+    p.skills.length ? h('div', { class: 'pc-skills' }, ...p.skills.map((id) => h('i', { title: SKILLS[id].name }, skillIcon(id)))) : null,
     h(
       'div',
       { class: 'pc-stats' },
@@ -60,7 +61,7 @@ export function skillList(p: Player): HTMLElement {
     h('div', { class: 'sub-title' }, 'Skills'),
     ...p.skills.map((id) => {
       const s = SKILLS[id];
-      return h('div', { class: 'skill-row' }, h('span', { class: 'skill-ico' }, s.icon), h('div', {}, h('b', {}, s.name), h('small', {}, s.desc)));
+      return h('div', { class: 'skill-row' }, h('span', { class: 'skill-ico' }, skillIcon(id)), h('div', {}, h('b', {}, s.name), h('small', {}, s.desc)));
     }),
     ...Array.from({ length: locked }, (_, i) =>
       h(

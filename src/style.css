@@ -1829,3 +1829,35 @@ button.big {
   background: rgba(255, 214, 10, 0.14);
   border: 1px solid rgba(255, 214, 10, 0.4);
 }
+
+/* Skill artwork (white glyphs on transparency, prepared in ui/skillIcons.ts). */
+.skill-img {
+  display: block;
+  width: 72%;
+  height: 72%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+.skill-emoji {
+  line-height: 1;
+}
+.skill-ico .skill-img {
+  width: 64%;
+  height: 64%;
+}
+.sheet-skills span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.sheet-skills .skill-img {
+  width: 14px;
+  height: 14px;
+}
+.ev-ico .skill-img {
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  vertical-align: -0.2em;
+}

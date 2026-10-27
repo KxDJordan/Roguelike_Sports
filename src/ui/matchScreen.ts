@@ -7,6 +7,7 @@ import type { TeamSetup } from '../data/generator';
 import { CameraMode, PitchRenderer, freshFx } from '../render/pitchRenderer';
 import { WEATHER, Weather, windLabel } from '../sim/weather';
 import { sound } from '../audio/sound';
+import { skillIcon } from './skillIcons';
 import type { Fx } from '../sim/stats';
 
 const SPEEDS = [1, 2, 4, 8];
@@ -207,7 +208,7 @@ export function matchScreen(opts: MatchScreenOptions): { el: HTMLElement; destro
         }
         if (e.type === 'goal') showGoal(e);
         const color = e.team === 0 ? opts.home.color : opts.away.color;
-        const row = h('div', { class: `ev ev-${e.type}`, style: { borderLeftColor: color } }, h('span', { class: 'ev-ico' }, ICON[e.type] ?? '•'), h('span', { class: 'ev-min' }, `${e.minute}'`), h('span', {}, e.text));
+        const row = h('div', { class: `ev ev-${e.type}`, style: { borderLeftColor: color } }, h('span', { class: 'ev-ico' }, e.skill ? skillIcon(e.skill) : ICON[e.type] ?? '•'), h('span', { class: 'ev-min' }, `${e.minute}'`), h('span', {}, e.text));
         ticker.prepend(row);
         setTimeout(() => row.classList.add('fade'), 4200);
         setTimeout(() => row.remove(), 5200);
@@ -376,7 +377,7 @@ function eventList(m: Match): HTMLElement {
   return h(
     'div',
     { class: 'events' },
-    ...key.map((e) => h('div', { class: `ev ev-${e.type} side-${e.team}` }, h('span', { class: 'ev-ico' }, ICON[e.type] ?? '•'), h('span', { class: 'ev-min' }, `${e.minute}'`), h('span', {}, e.text))),
+    ...key.map((e) => h('div', { class: `ev ev-${e.type} side-${e.team}` }, h('span', { class: 'ev-ico' }, e.skill ? skillIcon(e.skill) : ICON[e.type] ?? '•'), h('span', { class: 'ev-min' }, `${e.minute}'`), h('span', {}, e.text))),
   );
 }
 

@@ -5,6 +5,7 @@ import { formationTarget, keeperTarget, toU } from '../sim/positioning';
 import { clamp } from '../sim/vec';
 import type { TeamSetup } from '../data/generator';
 import { SKILLS } from '../data/skills';
+import { skillIcon } from './skillIcons';
 import { ARCHETYPE_OF, ARCHETYPE_WEIGHTS, ATTR_KEYS, AttrKey, Player, familiarity, ratingAt } from '../data/player';
 import { FORMATIONS, FORMATION_IDS } from '../tactics/formations';
 import { ROLES, rolesForSlot } from '../tactics/roles';
@@ -218,7 +219,7 @@ export function tacticsScreen(ctx: TacticsContext): HTMLElement {
       h(
         'div',
         { class: 'sheet-head' },
-        h('div', {}, h('b', {}, `#${p.number} ${p.name}`), h('div', { class: 'muted' }, `${slot.pos} · natural ${p.positions.join('/')} · rating here ${ratingAt(p, slot.pos)}`), p.skills.length ? h('div', { class: 'sheet-skills' }, ...p.skills.map((id) => h('span', { title: SKILLS[id].desc }, `${SKILLS[id].icon} ${SKILLS[id].name}`))) : null),
+        h('div', {}, h('b', {}, `#${p.number} ${p.name}`), h('div', { class: 'muted' }, `${slot.pos} · natural ${p.positions.join('/')} · rating here ${ratingAt(p, slot.pos)}`), p.skills.length ? h('div', { class: 'sheet-skills' }, ...p.skills.map((id) => h('span', { title: SKILLS[id].desc }, skillIcon(id), SKILLS[id].name))) : null),
         h('button', { class: 'ghost-btn', onclick: () => ((selected = null), render()) }, 'Close'),
       ),
       h(

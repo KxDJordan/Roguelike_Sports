@@ -4,6 +4,8 @@ import type { Fx } from '../sim/stats';
 import { Vec, clamp, lerp, lerpVec } from '../sim/vec';
 import { inkFor, keeperKits } from '../data/kits';
 import { WEATHER, Weather } from '../sim/weather';
+import { SKILLS, SkillId } from '../data/skills';
+import { skillGlyph } from '../ui/skillIcons';
 
 /** Meters of stadium drawn around the pitch. */
 const SURROUND = 14;
@@ -40,6 +42,7 @@ interface Floater {
   card?: 'yellow' | 'red';
   /** Skill callout: drawn as a pill in this team colour. */
   skill?: string;
+  skillId?: SkillId;
 }
 
 interface Streak {
@@ -724,7 +727,7 @@ export class PitchRenderer {
       case 'skill':
         this.rings.push({ x: f.x, y: f.y, born: now, life: 600, color: 'rgba(255,214,10,0.95)', max: 4.5 });
         this.burst(f.x, f.y, 18, ['#ffd60a', '#ffffff', color], 8, 0.14);
-        this.floaters.push({ x: f.x, y: f.y, born: now, text: (f.label ?? '').toUpperCase(), color: '#fff', skill: color });
+        this.floaters.push({ x: f.x, y: f.y, born: now, text: (f.label ?? '').toUpperCase(), color: '#fff', skill: color, skillId: f.skill });
         break;
       case 'goal': {
         this.burst(f.x, f.y, 140, [color, shade(color, 0.4), '#ffffff', '#ffd60a'], 22, 0.25, true);
@@ -844,23 +847,47 @@ export class PitchRenderer {
       const y = c.y - 18 - t * 26;
       ctx.globalAlpha = t < 0.8 ? 1 : 1 - (t - 0.8) / 0.2;
       if (f.skill) {
-        // Skill callout: a pill that pops in, in the team's colour with a gold edge.
+        // Skill callout: a pill in the team's colour with a gold edge. The icon sits in its own
+        // fixed-size badge on the left and only the plain name is measured, so emoji widths
+        // (which canvas measures unreliably) can't push the text out of the pill.
         const pop = t < 0.08 ? 0.6 + (t / 0.08) * 0.55 : t < 0.14 ? 1.15 - ((t - 0.08) / 0.06) * 0.15 : 1;
+        const H = 24;
+        const badge = 18;
+        const pad = 3;
+        const gap = 6;
         ctx.save();
         ctx.translate(c.x, y - 8);
         ctx.scale(pop, pop);
         ctx.font = `900 13px 'Barlow Condensed', system-ui, sans-serif`;
-        const w = ctx.measureText(f.text).width + 16;
-        roundRect(ctx, -w / 2, -11, w, 22, 11);
+        const w = pad + badge + gap + ctx.measureText(f.text).width + 10;
+        const left = -w / 2;
+        roundRect(ctx, left, -H / 2, w, H, H / 2);
         ctx.fillStyle = f.skill;
         ctx.fill();
         ctx.lineWidth = 2;
         ctx.strokeStyle = '#ffd60a';
         ctx.stroke();
-        ctx.textAlign = 'center';
+        // Icon badge.
+        const bx = left + pad + badge / 2;
+        ctx.beginPath();
+        ctx.arc(bx, 0, badge / 2, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(8,12,20,0.55)';
+        ctx.fill();
+        const glyph = f.skillId ? skillGlyph(f.skillId) : null;
+        if (glyph) ctx.drawImage(glyph, bx - badge * 0.38, -badge * 0.38, badge * 0.76, badge * 0.76);
+        else if (f.skillId) {
+          ctx.font = `11px system-ui, 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = '#fff';
+          ctx.fillText(SKILLS[f.skillId].icon, bx, 1);
+          ctx.font = `900 13px 'Barlow Condensed', system-ui, sans-serif`;
+        }
+        ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = inkFor(f.skill);
-        ctx.fillText(f.text, 0, 1);
+        ctx.fillText(f.text, left + pad + badge + gap, 1);
+        ctx.textAlign = 'center';
         ctx.textBaseline = 'alphabetic';
         ctx.restore();
       } else if (f.card) {
