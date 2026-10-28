@@ -3,7 +3,7 @@ import { playerCard, fitColor, formClass, skillList } from './playerCard';
 import { clubPanel } from './clubPanel';
 import { SKILLS } from '../data/skills';
 import { sound } from '../audio/sound';
-import { ATTR_KEYS, AttrKey, Player, SLOT_GROUP, avgForm, marketValue, overall, xpToNext } from '../data/player';
+import { ARCHETYPE_OF, ARCHETYPE_WEIGHTS, ATTR_KEYS, AttrKey, Player, SLOT_GROUP, avgForm, marketValue, overall, xpToNext } from '../data/player';
 import { Club, MIN_SQUAD, buySkillPoint, restCost, restPlayer, sellPlayer, skillPointCost, trainAttribute } from '../game/club';
 
 const ATTR_NAME: Record<AttrKey, string> = {
@@ -100,113 +100,119 @@ export function squadScreen(club: Club, onBack: () => void, coinsEl: () => HTMLE
       layer.remove();
       render();
     };
+    const modal = h('div', { class: 'modal player-modal pop-in' });
+    layer.append(modal);
     const draw = () => {
       const form = avgForm(p);
-      const keys = ATTR_KEYS.filter((k) => p.positions[0] === 'GK' || k !== 'goalkeeping');
-      layer.replaceChildren(
+      // Attributes that count toward his overall rating at his position come first, highlighted.
+      const weights = ARCHETYPE_WEIGHTS[ARCHETYPE_OF[p.positions[0]]];
+      const isKey = (k: AttrKey) => (weights[k] ?? 0) >= 1;
+      const keys = ATTR_KEYS.filter((k) => p.positions[0] === 'GK' || k !== 'goalkeeping').sort((a, b) => Number(isKey(b)) - Number(isKey(a)) || (isKey(a) ? (weights[b] ?? 0) - (weights[a] ?? 0) : 0));
+      // Refresh the contents in place: rebuilding the modal would replay its pop-in and lose the scroll.
+      const top = modal.scrollTop;
+      modal.replaceChildren(
+        h('button', { class: 'close-x', onclick: close }, '✕'),
         h(
           'div',
-          { class: 'modal player-modal pop-in' },
-          h('button', { class: 'close-x', onclick: close }, '✕'),
+          { class: 'pm-head' },
+          playerCard(p, { size: 'lg' }),
           h(
             'div',
-            { class: 'pm-head' },
-            playerCard(p, { size: 'lg' }),
+            { class: 'pm-info' },
+            h('h2', {}, p.name),
+            h('div', { class: 'muted' }, `${p.positions.join(' / ')} · #${p.number} · ${p.rarity.toUpperCase()}`),
+            h('div', { class: 'pm-meter' }, h('span', {}, `Level ${p.level}`), h('div', { class: 'bar-track' }, h('i', { style: { width: `${(p.xp / xpToNext(p.level)) * 100}%` } })), h('small', {}, `${p.xp}/${xpToNext(p.level)} XP`)),
+            h('div', { class: 'pm-meter' }, h('span', {}, 'Fitness'), h('div', { class: 'bar-track' }, h('i', { style: { width: `${p.condition * 100}%`, background: fitColor(p.condition) } })), h('small', {}, `${Math.round(p.condition * 100)}%`)),
             h(
               'div',
-              { class: 'pm-info' },
-              h('h2', {}, p.name),
-              h('div', { class: 'muted' }, `${p.positions.join(' / ')} · #${p.number} · ${p.rarity.toUpperCase()}`),
-              h('div', { class: 'pm-meter' }, h('span', {}, `Level ${p.level}`), h('div', { class: 'bar-track' }, h('i', { style: { width: `${(p.xp / xpToNext(p.level)) * 100}%` } })), h('small', {}, `${p.xp}/${xpToNext(p.level)} XP`)),
-              h('div', { class: 'pm-meter' }, h('span', {}, 'Fitness'), h('div', { class: 'bar-track' }, h('i', { style: { width: `${p.condition * 100}%`, background: fitColor(p.condition) } })), h('small', {}, `${Math.round(p.condition * 100)}%`)),
+              { class: 'pm-form' },
+              h('span', {}, 'Form'),
+              ...(p.form.length ? p.form.map((r) => h('i', { class: `form-chip ${formClass(r)}` }, r.toFixed(1))) : [h('small', { class: 'muted' }, 'No matches yet')]),
+              form !== null ? h('b', { class: formClass(form) }, ` avg ${form.toFixed(2)}`) : null,
+            ),
+            h('div', { class: 'pm-value' }, 'Value ', h('b', { class: 'coin' }, marketValue(p).toLocaleString())),
+          ),
+        ),
+        skillList(p),
+        h(
+          'div',
+          { class: 'pm-train' },
+          h('div', { class: 'sub-title' }, `Training · ${p.skillPoints} skill point${p.skillPoints === 1 ? '' : 's'}`),
+          h('small', { class: 'muted key-note' }, h('i', { class: 'key-star' }, '★'), ` Key for a ${p.positions[0]}: these raise his overall rating.`),
+          h(
+            'div',
+            { class: 'attr-list' },
+            ...keys.map((k) =>
               h(
                 'div',
-                { class: 'pm-form' },
-                h('span', {}, 'Form'),
-                ...(p.form.length ? p.form.map((r) => h('i', { class: `form-chip ${formClass(r)}` }, r.toFixed(1))) : [h('small', { class: 'muted' }, 'No matches yet')]),
-                form !== null ? h('b', { class: formClass(form) }, ` avg ${form.toFixed(2)}`) : null,
-              ),
-              h('div', { class: 'pm-value' }, 'Value ', h('b', { class: 'coin' }, marketValue(p).toLocaleString())),
-            ),
-          ),
-          skillList(p),
-          h(
-            'div',
-            { class: 'pm-train' },
-            h('div', { class: 'sub-title' }, `Training · ${p.skillPoints} skill point${p.skillPoints === 1 ? '' : 's'}`),
-            h(
-              'div',
-              { class: 'attr-list' },
-              ...keys.map((k) =>
+                { class: `attr-row ${isKey(k) ? 'key' : ''}` },
+                h('span', { class: 'attr-name' }, isKey(k) ? h('i', { class: 'key-star' }, '★') : null, ATTR_NAME[k]),
+                h('div', { class: 'bar-track' }, h('i', { style: { width: `${p.attrs[k]}%`, background: attrColor(p.attrs[k]) } })),
+                h('b', {}, p.attrs[k]),
                 h(
-                  'div',
-                  { class: 'attr-row' },
-                  h('span', {}, ATTR_NAME[k]),
-                  h('div', { class: 'bar-track' }, h('i', { style: { width: `${p.attrs[k]}%`, background: attrColor(p.attrs[k]) } })),
-                  h('b', {}, p.attrs[k]),
-                  h(
-                    'button',
-                    {
-                      class: 'plus',
-                      disabled: p.skillPoints <= 0 || p.attrs[k] >= 99,
-                      onclick: () => {
-                        const had = p.skills.length;
-                        trainAttribute(club, p, k);
-                        if (p.skills.length > had) {
-                          const s = SKILLS[p.skills[p.skills.length - 1]];
-                          sound.reveal(p.rarity);
-                          toast(`${p.rarity.toUpperCase()}! New skill: ${s.icon} ${s.name}`);
-                        }
-                        draw();
-                      },
+                  'button',
+                  {
+                    class: 'plus',
+                    disabled: p.skillPoints <= 0 || p.attrs[k] >= 99,
+                    onclick: () => {
+                      const had = p.skills.length;
+                      const ovr = overall(p);
+                      trainAttribute(club, p, k);
+                      if (p.skills.length > had) {
+                        const s = SKILLS[p.skills[p.skills.length - 1]];
+                        sound.reveal(p.rarity);
+                        toast(`${p.rarity.toUpperCase()}! New skill: ${s.icon} ${s.name}`);
+                      } else if (overall(p) > ovr) toast(`${p.name.split(' ').slice(-1)[0]} +1 overall → ${overall(p)}`);
+                      draw();
                     },
-                    '+',
-                  ),
+                  },
+                  '+',
                 ),
               ),
             ),
           ),
+        ),
+        h(
+          'div',
+          { class: 'actions' },
           h(
-            'div',
-            { class: 'actions' },
-            h(
-              'button',
-              {
-                onclick: () => {
-                  if (!buySkillPoint(club, p)) return toast('Not enough coins');
-                  draw();
-                },
+            'button',
+            {
+              onclick: () => {
+                if (!buySkillPoint(club, p)) return toast('Not enough coins');
+                draw();
               },
-              `Coaching +1 SP · ${skillPointCost(p)}`,
-            ),
-            h(
-              'button',
-              {
-                disabled: restCost(p) <= 0,
-                onclick: () => {
-                  if (!restPlayer(club, p)) return toast('Not enough coins');
-                  draw();
-                },
+            },
+            `Coaching +1 SP · ${skillPointCost(p)}`,
+          ),
+          h(
+            'button',
+            {
+              disabled: restCost(p) <= 0,
+              onclick: () => {
+                if (!restPlayer(club, p)) return toast('Not enough coins');
+                draw();
               },
-              restCost(p) > 0 ? `Physio · ${restCost(p)}` : 'Fully fit',
-            ),
-            h(
-              'button',
-              {
-                class: 'danger',
-                onclick: () => {
-                  if (club.team.squad.length <= MIN_SQUAD) return toast(`You need at least ${MIN_SQUAD} players`);
-                  if (!confirm(`Sell ${p.name} for ${marketValue(p).toLocaleString()} coins?`)) return;
-                  sellPlayer(club, p);
-                  toast(`${p.name} sold`);
-                  close();
-                },
+            },
+            restCost(p) > 0 ? `Physio · ${restCost(p)}` : 'Fully fit',
+          ),
+          h(
+            'button',
+            {
+              class: 'danger',
+              onclick: () => {
+                if (club.team.squad.length <= MIN_SQUAD) return toast(`You need at least ${MIN_SQUAD} players`);
+                if (!confirm(`Sell ${p.name} for ${marketValue(p).toLocaleString()} coins?`)) return;
+                sellPlayer(club, p);
+                toast(`${p.name} sold`);
+                close();
               },
-              `Sell · ${marketValue(p).toLocaleString()}`,
-            ),
+            },
+            `Sell · ${marketValue(p).toLocaleString()}`,
           ),
         ),
       );
+      modal.scrollTop = top;
     };
     draw();
     document.body.append(layer);

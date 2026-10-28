@@ -123,6 +123,10 @@ const RESTART_TIME: Record<RestartType, number> = {
 /** Candidate spots (meters) an attacker considers when moving to get open. */
 /** Sim seconds before a player's triggered skill can fire again (about 7.5 match minutes). */
 const SKILL_REST = 70;
+/** How long after a turnover the tempo setting drives sprinting forward or back (sim seconds). */
+const TRANSITION_SECONDS = 5;
+/** How far further upfield players aim when breaking at a fast tempo (meters). */
+const TRANSITION_SURGE = 7;
 /** How far off the straight line a curled pass sets off (radians). */
 const CURL_ANGLE = 0.35;
 /** How long (sim seconds) a keeper holds the ball after winning it, while play resets. */
@@ -543,7 +547,30 @@ export class Match {
 
   /** The few seconds after winning the ball, when the opponent is out of shape. */
   private inTransition(t: TeamSide): boolean {
-    return this.time - this.regainAt[t] < 5;
+    return this.time - this.regainAt[t] < TRANSITION_SECONDS;
+  }
+
+  /**
+   * Tempo sets how hard players run when the ball changes hands. For a few seconds after a
+   * turnover, the side that won it breaks forward and the side that lost it gets back into shape:
+   * at a fast tempo everyone sprints, at a slow one they jog (saving their legs). It changes the
+   * effort, not anyone's top speed. Chasing, pressing and blocking are always flat out.
+   */
+  private transitionEffort(p: SimPlayer): void {
+    if (p.isGK || this.reset || this.ball.owner === p.id || this.phase !== 'play') return;
+    if (p.action !== 'position' && p.action !== 'support' && p.action !== 'mark' && p.action !== 'run' && p.action !== 'box') return;
+    const won = this.possession === p.team && this.time - this.regainAt[p.team] < TRANSITION_SECONDS;
+    const lost = this.possession !== p.team && this.time - this.lostBallAt[p.team] < TRANSITION_SECONDS;
+    if (!won && !lost) return;
+    const tempo = this.tactics(p.team).team.tempo;
+    // Fast: full sprint; normal: a brisk run; slow: a jog.
+    const effort = tempo > 0 ? 1 : tempo === 0 ? 0.88 : 0.66;
+    p.urgency = tempo > 0 ? Math.max(p.urgency, effort) : Math.min(p.urgency, effort);
+    // At a fast tempo the side that won it also surges into the space ahead instead of settling.
+    if (won && tempo > 0 && (p.action === 'position' || p.action === 'support')) {
+      const dir = p.team === 0 ? 1 : -1;
+      p.target = this.clampPitch({ x: p.target.x + dir * TRANSITION_SURGE, y: p.target.y });
+    }
   }
 
   // ---------------------------------------------------------------- main loop
@@ -561,6 +588,7 @@ export class Match {
     this.computeMarks();
     for (const p of this.onPitch) {
       this.think(p);
+      this.transitionEffort(p);
       if (this.phase !== 'play') return;
     }
     for (const p of this.onPitch) this.move(p);
@@ -1481,6 +1509,8 @@ export class Match {
       (1.35 - (0.7 * p.data.attrs.stamina) / 99) *
       (p.action === 'press' ? 1.6 : 1) *
       (this.possession !== p.team ? 1 + 0.15 * this.tactics(p.team).team.pressing : 1) *
+      // A high-tempo game takes it out of the legs; a slow one saves them.
+      (1 + 0.12 * this.tactics(p.team).team.tempo) *
       this.weather.stamina *
       (p.skills.has('tireless') ? 0.7 : 1);
     p.stamina = Math.max(0.2, p.stamina - drain * C.TICK);

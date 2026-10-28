@@ -80,19 +80,26 @@ const LIST: Role[] = [
   role('fb', 'Full-Back', 'FB', FB, 'Balanced: supports attacks down the flank but prioritises defending.', { run: 0.6, cross: 1.0, shoot: 0.4 }, { du: 0.12, dv: -0.02 }),
   role('wb', 'Wing-Back', 'WB', WB, 'Bombs forward to provide width and crosses; leaves space behind.', { run: 1.4, cross: 1.4, dribble: 1.1, shoot: 0.5 }, { du: 0.28, dv: -0.04 }, { du: 0.03 }),
   role('ifb', 'Inverted Full-Back', 'IFB', FB, 'Tucks into midfield in possession to add a passer centrally.', { run: 0.4, cross: 0.4, pass: 1.2, shoot: 0.4 }, { du: 0.12, dv: 0.2 }),
+  role('fbk', 'Falseback', 'FLB', FB, 'Steps right up into central midfield in possession as an extra playmaker, then drops back to full-back without the ball.', { run: 0.35, cross: 0.3, pass: 1.3, direct: 1.1, shoot: 0.5, dribble: 0.8 }, { du: 0.3, dv: 0.3 }),
+  role('awb', 'Attacking Wing-Back', 'AWB', WB, 'Plays almost as a winger in possession: overlaps high, crosses early and arrives at the back post. Leaves space behind.', { run: 1.9, cross: 1.5, dribble: 1.2, shoot: 0.7 }, { du: 0.42, dv: -0.06 }, { du: 0.06 }, { roam: 1.2 }),
 
   role('anc', 'Anchor', 'A', ['DM'], 'Sits in front of the defence, screens passing lanes and rarely leaves position.', { run: 0.1, press: 0.6, dribble: 0.6, shoot: 0.5 }, { du: -0.06 }, { du: -0.03 }, { roam: 0.8 }),
+  role('ch', 'Centre-Half', 'CH', ['DM'], 'Drops between the centre-backs in possession to make a back three and start attacks; screens the defence without the ball.', { run: 0.05, pass: 1.2, direct: 1.15, dribble: 0.5, shoot: 0.3, press: 0.7 }, { du: -0.11 }, { du: -0.04 }, { roam: 0.8 }),
   role('bwm', 'Ball-Winning Midfielder', 'BWM', ['DM', 'CM'], 'Hunts the ball, presses and tackles relentlessly.', { run: 0.5, press: 1.8, tackle: 1.4, pass: 0.9 }, {}, {}, { roam: 1.3 }),
   role('dlp', 'Deep-Lying Playmaker', 'DLP', ['DM', 'CM'], 'Dictates play from deep with long, progressive passing.', { run: 0.3, pass: 1.4, direct: 1.3, press: 0.8, dribble: 0.8 }, { du: -0.04 }),
   role('cm', 'Central Midfielder', 'CM', ['CM', 'DM'], 'All-round midfielder who links defence and attack.', { run: 0.8 }),
   role('b2b', 'Box-to-Box', 'B2B', ['CM'], 'Covers every blade of grass, arriving in the box and pressing back.', { run: 1.5, press: 1.25, shoot: 1.1 }, { du: 0.1 }, {}, { roam: 1.8 }),
+  role('bc', 'Box Crasher', 'BC', ['CM'], 'Makes late, lung-busting runs to arrive in the box as a second striker.', { run: 1.9, shoot: 1.3, pass: 0.9, press: 1.1 }, { du: 0.16 }, {}, { roam: 1.4 }),
+  role('hw', 'Half-Winger', 'HW', ['CM', 'AM'], 'Drifts out into the half-space high up the pitch to combine with the winger and full-back.', { run: 1.2, dribble: 1.2, pass: 1.15, cross: 1.2 }, { du: 0.14, dv: -0.14 }),
 
   role('ap', 'Advanced Playmaker', 'AP', ['AM', 'CM'], 'Finds pockets between the lines and creates chances.', { pass: 1.4, dribble: 1.1, direct: 1.2, run: 0.8, press: 0.8 }, { du: 0.05 }),
   role('ss', 'Shadow Striker', 'SS', ['AM'], 'Runs beyond the striker to attack the box.', { run: 1.7, shoot: 1.4, pass: 0.8 }, { du: 0.18 }, { du: 0.04 }),
+  role('c10', 'Classic 10', 'C10', ['AM'], 'A free-roaming number ten: finds space anywhere in the final third to create, but barely defends.', { pass: 1.5, dribble: 1.25, direct: 1.25, shoot: 1.1, run: 0.6, press: 0.45 }, { du: 0.08 }, { du: 0.12 }),
 
   role('wm', 'Wide Midfielder', 'WM', WIDE_MID, 'Works up and down the flank, tracking back diligently.', { run: 0.9, press: 1.15, cross: 1.1 }, {}, {}, { roam: 1.25 }),
   role('wng', 'Winger', 'W', WIDE_ALL, 'Hugs the touchline, beats the full-back and delivers crosses.', { cross: 1.6, dribble: 1.3, run: 1.1, press: 0.8 }, { du: 0.1, dv: -0.06 }, { du: 0.06, dv: -0.03 }),
-  role('if', 'Inside Forward', 'IF', WIDE_ALL, 'Cuts inside from the flank to shoot.', { shoot: 1.5, dribble: 1.3, cross: 0.4, run: 1.2, press: 0.8 }, { du: 0.08, dv: 0.22 }, { du: 0.06 }),
+  role('if', 'Inside Forward', 'IF', WIDE_ALL, 'Cuts inside from the flank and pushes up into the half-space by the box as a goal threat, attacking crosses at the far post.', { shoot: 1.6, dribble: 1.3, cross: 0.4, run: 1.45, press: 0.8 }, { du: 0.2, dv: 0.24 }, { du: 0.08 }),
+  role('wp', 'Wide Playmaker', 'WP', WIDE_ALL, 'Starts wide, then drifts inside and a little deeper to dictate play and pick out runners.', { pass: 1.4, direct: 1.2, dribble: 1.1, cross: 0.8, run: 0.5, shoot: 0.9 }, { du: -0.02, dv: 0.2 }),
 
   role('af', 'Advanced Forward', 'AF', ['ST'], 'Plays on the shoulder of the last defender and runs into the gaps in behind. Stays high as an outlet when defending.', { run: 1.5, shoot: 1.1, press: 0.8 }, { du: 0.03 }, { du: 0.1 }),
   role('tm', 'Target Man', 'TM', ['ST'], 'Physical focal point who wins headers and holds the ball up. Stays high for clearances.', { dribble: 0.5, run: 0.6, aerial: 1.5, press: 0.7 }, { du: -0.02 }, { du: 0.1 }),

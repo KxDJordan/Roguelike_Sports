@@ -7,6 +7,8 @@ import { storeScreen } from './ui/storeScreen';
 import { reportScreen } from './ui/reportScreen';
 import { playerCard, setCardLook } from './ui/playerCard';
 import { crestSvg } from './ui/art';
+import { IconName, icon } from './ui/icons';
+import { stadiumBackdrop } from './ui/stadium';
 import { Rng } from './sim/rng';
 import { TEAM_NAMES, TeamSetup, makeTeam, randomAiTactics } from './data/generator';
 import { overall } from './data/player';
@@ -16,17 +18,21 @@ import { Club, applyMatch, loadClub, newClub, saveClub, squadRating } from './ga
 import { Weather, rollWeather, windLabel } from './sim/weather';
 import { sound } from './audio/sound';
 import { loadSkillIcons } from './ui/skillIcons';
-import { careerScreen, roundScreen } from './ui/careerScreen';
+import { careerScreen, crest, roundScreen } from './ui/careerScreen';
 import { DIVISIONS, finishSeason, matchSide, nextOpponent, recordUserResult, rounds, seasonOver, simulateRound, startSeason, userFixture } from './game/career';
 import { Match } from './sim/match';
 
 const app = document.getElementById('app')!;
 let teardown: (() => void) | null = null;
+let backdrop: HTMLElement | null = null;
 
 function show(el: HTMLElement, destroy?: () => void): void {
   teardown?.();
   teardown = destroy ?? null;
   app.replaceChildren(el);
+  // The stadium sits behind every screen; away from the main menu it is dimmed so dense screens stay readable.
+  if (!backdrop) document.body.prepend((backdrop = stadiumBackdrop()));
+  document.body.classList.toggle('dim', !el.classList.contains('home-stadium'));
   window.scrollTo(0, 0);
 }
 
@@ -39,45 +45,101 @@ function home(): void {
   const team = club.team;
   const best = [...team.squad].sort((a, b) => overall(b) - overall(a))[0];
   const { w, d, l, gf, ga } = club.record;
+  const led = (label: string, value: number | string) => h('div', { class: 'led' }, h('b', {}, String(value)), h('small', {}, label));
   show(
     h(
       'div',
-      { class: 'screen home fade-in' },
-      h('div', { class: 'home-top' }, h('div', { class: 'logo' }, h('span', {}, 'ROGUELIKE'), h('b', {}, 'SPORTS'), h('small', {}, 'FOOTBALL MANAGER')), coins()),
+      { class: 'screen home-stadium fade-in' },
       h(
         'div',
-        { class: 'club-hero', style: { '--kit': team.color } as unknown as Partial<CSSStyleDeclaration> },
-        h('div', { class: 'crest art', title: 'Club identity', onclick: () => show(squadScreen(club, home, coins, 'club')) }, crestSvg(team.crest!, team.kit!, team.short)),
+        { class: 'home' },
         h(
           'div',
-          { class: 'club-meta' },
-          h('b', {}, team.name),
-          h('div', { class: 'muted' }, `${team.tactics.formation} · Rating ${squadRating(team)} · ${team.squad.length} players`),
-          h('div', { class: 'record' }, `W${w} D${d} L${l} · ${gf}:${ga}`),
-          h('div', { class: 'results' }, ...club.results.slice(-5).map((r) => h('i', { class: `res res-${r}` }, r))),
+          { class: 'home-top' },
+          h('div', { class: 'logo' }, h('span', { class: 'logo-ball' }, icon('ball')), h('div', {}, h('span', {}, 'ROGUELIKE'), h('b', {}, 'SPORTS FC'), h('small', {}, 'FOOTBALL MANAGER'))),
+          coins(),
         ),
-        h('div', { class: 'hero-card' }, playerCard(best, { size: 'sm', badge: 'STAR' })),
-      ),
-      h('button', { class: 'primary big play-btn', onclick: () => preMatch() }, h('span', {}, 'PLAY MATCH'), h('small', {}, 'Friendly · earn coins & XP')),
-      h(
-        'div',
-        { class: 'tile-grid' },
-        tile('🧠', 'Tactics', 'Formation, roles, instructions', () => editTactics()),
-        tile('👥', 'Squad', 'Train, rest and sell players', () => show(squadScreen(club, home, coins))),
-        tile('🎴', 'Recruit', 'Players, kits, balls & crests', () => show(storeScreen(club, home, coins))),
-        tile('🎽', 'Club', 'Name, kits, crest & ball', () => show(squadScreen(club, home, coins, 'club'))),
-        tile('🏆', 'Career', careerBlurb(), careerHub),
-        tile('🎲', 'Cup Run', 'Roguelike runs · coming soon', null),
-        tile('♻', 'New club', 'Start over', () => {
-          if (confirm('Start over with a brand new club? Your current progress will be lost.')) {
-            club = newClub();
-            setCardLook(club.team.kit!, club.team.crest!);
-            home();
-          }
-        }),
+        h(
+          'div',
+          { class: 'club-hero scoreboard', style: { '--kit': team.color } as unknown as Partial<CSSStyleDeclaration> },
+          h('div', { class: 'crest art', title: 'Club identity', onclick: () => show(squadScreen(club, home, coins, 'club')) }, crestSvg(team.crest!, team.kit!, team.short)),
+          h(
+            'div',
+            { class: 'club-meta' },
+            h('b', {}, team.name),
+            h('div', { class: 'muted' }, `${team.tactics.formation} · Rating ${squadRating(team)} · ${team.squad.length} players`),
+            h('div', { class: 'leds' }, led('W', w), led('D', d), led('L', l), led('GOALS', `${gf}:${ga}`)),
+            h('div', { class: 'results' }, ...club.results.slice(-5).map((r) => h('i', { class: `res res-${r}` }, r))),
+          ),
+          h('div', { class: 'hero-card' }, playerCard(best, { size: 'sm', badge: 'STAR' })),
+        ),
+        nextUp(),
+        h(
+          'button',
+          { class: 'primary big play-btn', onclick: () => preMatch() },
+          h('span', { class: 'kick-ball' }, icon('ball')),
+          h('span', { class: 'kick-text' }, h('span', {}, 'KICK OFF'), h('small', {}, 'Friendly · earn coins & XP')),
+        ),
+        h(
+          'div',
+          { class: 'tile-grid' },
+          tile('tactics', 'Tactics', 'Formation, roles, instructions', () => editTactics()),
+          tile('squad', 'Squad', 'Train, rest and sell players', () => show(squadScreen(club, home, coins))),
+          tile('recruit', 'Recruit', 'Players, kits, balls & crests', () => show(storeScreen(club, home, coins))),
+          tile('club', 'Club', 'Name, kits, crest & ball', () => show(squadScreen(club, home, coins, 'club'))),
+          tile('career', 'Career', careerBlurb(), careerHub),
+          tile('cup', 'Cup Run', 'Roguelike runs · coming soon', null),
+        ),
+        adBoard(),
+        // Starting over wipes everything, so it's a quiet link rather than a big tile.
+        h(
+          'button',
+          {
+            class: 'ghost-btn new-club',
+            onclick: () => {
+              if (confirm('Start over with a brand new club? Your current progress will be lost.')) {
+                club = newClub();
+                setCardLook(club.team.kit!, club.team.crest!);
+                home();
+              }
+            },
+          },
+          icon('restart'),
+          'Start a new club',
+        ),
       ),
     ),
   );
+}
+
+/** The next fixture, when a league season is on. */
+function nextUp(): HTMLElement | null {
+  const c = club.career;
+  if (!c || seasonOver(c)) return null;
+  const nx = nextOpponent(c);
+  if (!nx) return null;
+  return h(
+    'button',
+    { class: 'next-up', onclick: careerHub },
+    h('span', { class: 'nu-label' }, 'NEXT UP'),
+    h('span', { class: 'nu-teams' }, crest({ short: club.team.short, color: club.team.color }), h('b', {}, 'v'), crest(nx.team)),
+    h('span', { class: 'nu-info' }, h('b', {}, nx.team.name), h('small', {}, `${DIVISIONS[c.tier].name} · Matchday ${c.round + 1} · ${nx.home ? 'Home' : 'Away'}`)),
+    h('span', { class: 'nu-go' }, '›'),
+  );
+}
+
+/** A scrolling LED advertising board along the bottom of the menu. */
+function adBoard(): HTMLElement {
+  const c = club.career;
+  const items = [
+    club.team.name.toUpperCase(),
+    c ? `${DIVISIONS[c.tier].name.toUpperCase()} · SEASON ${c.season}` : 'START YOUR CAREER · CLIMB TO THE ELITE LEAGUE',
+    'NEW KITS · BALLS · CRESTS IN EVERY GOLD PACK',
+    `RECORD W${club.record.w} D${club.record.d} L${club.record.l}`,
+    'ROGUELIKE SPORTS FC',
+  ];
+  const run = () => h('span', { class: 'ad-run' }, ...items.flatMap((t) => [h('b', {}, t), h('i', {}, '✦')]));
+  return h('div', { class: 'ad-board', 'aria-hidden': 'true' }, h('div', { class: 'ad-track' }, run(), run()));
 }
 
 /** Career tile subtitle: where the season stands. */
@@ -87,8 +149,8 @@ function careerBlurb(): string {
   return seasonOver(c) ? `${DIVISIONS[c.tier].name} · season over` : `${DIVISIONS[c.tier].name} · MD ${c.round + 1}/${rounds(c)}`;
 }
 
-function tile(icon: string, title: string, sub: string, onclick: (() => void) | null): HTMLElement {
-  return h('button', { class: 'tile', disabled: !onclick, onclick: onclick ?? undefined }, h('span', { class: 'tile-ico' }, icon), h('b', {}, title), h('small', {}, sub));
+function tile(name: IconName, title: string, sub: string, onclick: (() => void) | null): HTMLElement {
+  return h('button', { class: 'tile', disabled: !onclick, onclick: onclick ?? undefined }, h('span', { class: 'tile-ico' }, icon(name)), h('b', {}, title), h('small', {}, sub));
 }
 
 function editTactics(): void {

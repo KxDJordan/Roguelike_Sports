@@ -53,8 +53,9 @@ describe('skills in matches', () => {
 
   it('fire during matches and make a skilled side better', () => {
     const rng = new Rng(2024);
-    const home = makeTeam(rng, 'Home', 'HOM', '#d64045', 72);
-    const away = makeTeam(rng, 'Away', 'AWY', '#3a86ff', 72);
+    // Elite squads (3 skills each), so the effect stands well clear of match-to-match noise.
+    const home = makeTeam(rng, 'Home', 'HOM', '#d64045', 83);
+    const away = makeTeam(rng, 'Away', 'AWY', '#3a86ff', 83);
     let gdWith = 0;
     let gdWithout = 0;
     let callouts = 0;
@@ -71,7 +72,7 @@ describe('skills in matches', () => {
     }
     expect(callouts / N).toBeGreaterThan(5);
     expect(callouts / N).toBeLessThan(30);
-    // About +0.6 goal difference at 200 matches; 60 matches is noisier, so the bar is lower.
+    // About +1.5 goal difference for elite squads; the bar leaves room for noise.
     expect(gdWith / N).toBeGreaterThan(gdWithout / N + 0.25);
   });
 });

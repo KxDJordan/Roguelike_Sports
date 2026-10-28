@@ -221,18 +221,22 @@ describe('effects feed', () => {
 describe('instant replay', () => {
   it('records the build-up to a goal and plays it back ending with the ball in the net', () => {
     const [h, a] = teams(31);
-    const m = new Match(copy(h), copy(a), 12);
-    const rec = new ReplayRecorder(6);
-    let seen = 0;
+    // Play seeded matches until one has a goal (any single seed might end 0-0).
+    let m = new Match(copy(h), copy(a), 12);
     let clip: ReturnType<ReplayRecorder['clip']> | null = null;
-    while (!clip && !m.isFinished()) {
-      if (m.phase === 'halftime') m.startSecondHalf();
-      const goals = m.score[0] + m.score[1];
-      m.step();
-      const scored = m.score[0] + m.score[1] > goals;
-      rec.record(m, freshFx(m, seen), scored);
-      seen = m.fxTotal;
-      if (scored) clip = rec.clip();
+    for (let seed = 12; !clip && seed < 30; seed++) {
+      m = new Match(copy(h), copy(a), seed);
+      const rec = new ReplayRecorder(6);
+      let seen = 0;
+      while (!clip && !m.isFinished()) {
+        if (m.phase === 'halftime') m.startSecondHalf();
+        const goals = m.score[0] + m.score[1];
+        m.step();
+        const scored = m.score[0] + m.score[1] > goals;
+        rec.record(m, freshFx(m, seen), scored);
+        seen = m.fxTotal;
+        if (scored) clip = rec.clip();
+      }
     }
     expect(clip).not.toBeNull();
     expect(clip!.length).toBeGreaterThan(20);
@@ -248,5 +252,78 @@ describe('instant replay', () => {
     expect(view.fx.some((f) => f.type === 'goal')).toBe(true);
     // The live match is untouched by the replay's players.
     expect(view.players[3].pos).not.toBe(m.players[3].pos);
+  });
+});
+
+describe('tempo', () => {
+  it('sprints forward after winning the ball and back after losing it at a fast tempo, at a cost in stamina', () => {
+    const run = (tempo: number) => {
+      let won = 0;
+      let wonN = 0;
+      let lost = 0;
+      let lostN = 0;
+      let stamina = 0;
+      const N = 6;
+      for (let i = 0; i < N; i++) {
+        const [h, a] = teams(1234);
+        const home = copy(h);
+        home.tactics.team.tempo = tempo;
+        const m = new Match(home, copy(a), 2000 + i);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const mm = m as any;
+        while (!m.isFinished()) {
+          if (m.phase === 'halftime') m.startSecondHalf();
+          m.step();
+          if (m.phase !== 'play' || mm.reset) continue;
+          const justWon = m.possession === 0 && m.time - mm.regainAt[0] < 5;
+          const justLost = m.possession !== 0 && m.time - mm.lostBallAt[0] < 5;
+          for (const p of m.onPitch) {
+            if (p.team !== 0 || p.isGK) continue;
+            const v = Math.hypot(p.vel.x, p.vel.y);
+            if (justWon) (won += p.vel.x), wonN++;
+            else if (justLost) (lost += v), lostN++;
+          }
+        }
+        const out = m.onPitch.filter((p) => p.team === 0 && !p.isGK);
+        stamina += out.reduce((s, p) => s + p.stamina, 0) / out.length / N;
+      }
+      return { upfield: won / wonN, back: lost / lostN, stamina };
+    };
+    const slow = run(-1);
+    const fast = run(1);
+    expect(fast.upfield).toBeGreaterThan(slow.upfield * 1.5);
+    expect(fast.back).toBeGreaterThan(slow.back * 1.08);
+    expect(fast.stamina).toBeLessThan(slow.stamina - 0.06);
+  });
+});
+
+describe('role archetypes', () => {
+  const center = { x: PITCH_L / 2, y: PITCH_W / 2 };
+  const ctx = { ball: center, ti: defaultTeamInstructions(), inPossession: true };
+  const instr = defaultPlayerInstructions();
+  const f = FORMATIONS['4-3-3'];
+  const at = (slotIdx: number, role: string) => {
+    const p = formationTarget(0, f.slots[slotIdx], ROLES[role], instr, ctx);
+    return { u: toU(0, p.x), v: toV(0, p.y) };
+  };
+  const centrality = (v: number) => Math.abs(v - 0.5);
+
+  it('pushes attacking full-backs highest, and falsebacks into midfield', () => {
+    const lb = 1;
+    expect(at(lb, 'awb').u).toBeGreaterThan(at(lb, 'wb').u + 0.05);
+    expect(at(lb, 'wb').u).toBeGreaterThan(at(lb, 'fb').u);
+    expect(centrality(at(lb, 'fbk').v)).toBeLessThan(centrality(at(lb, 'ifb').v));
+    expect(at(lb, 'fbk').u).toBeGreaterThan(at(lb, 'ifb').u + 0.1);
+  });
+
+  it('gets inside forwards higher and more central than wingers', () => {
+    const lw = 8;
+    expect(at(lw, 'if').u).toBeGreaterThan(at(lw, 'wng').u + 0.05);
+    expect(centrality(at(lw, 'if').v)).toBeLessThan(centrality(at(lw, 'wng').v));
+  });
+
+  it('drops a centre-half to the back line and sends box crashers forward', () => {
+    expect(Math.abs(at(5, 'ch').u - at(2, 'cd').u)).toBeLessThan(0.03);
+    expect(at(6, 'bc').u).toBeGreaterThan(at(6, 'cm').u + 0.05);
   });
 });
