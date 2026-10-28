@@ -4,9 +4,9 @@ import { clubPanel } from './clubPanel';
 import { SKILLS } from '../data/skills';
 import { sound } from '../audio/sound';
 import { ARCHETYPE_OF, ARCHETYPE_WEIGHTS, ATTR_KEYS, AttrKey, Player, SLOT_GROUP, avgForm, marketValue, overall, xpToNext } from '../data/player';
-import { Club, MIN_SQUAD, buySkillPoint, restCost, restPlayer, sellPlayer, skillPointCost, trainAttribute } from '../game/club';
+import { Club, MIN_SQUAD, buySkillPoint, sellPlayer, skillPointCost, trainAttribute } from '../game/club';
 
-const ATTR_NAME: Record<AttrKey, string> = {
+export const ATTR_NAME: Record<AttrKey, string> = {
   pace: 'Pace',
   acceleration: 'Acceleration',
   stamina: 'Stamina',
@@ -138,7 +138,7 @@ export function squadScreen(club: Club, onBack: () => void, coinsEl: () => HTMLE
           'div',
           { class: 'pm-train' },
           h('div', { class: 'sub-title' }, `Training · ${p.skillPoints} skill point${p.skillPoints === 1 ? '' : 's'}`),
-          h('small', { class: 'muted key-note' }, h('i', { class: 'key-star' }, '★'), ` Key for a ${p.positions[0]}: these raise his overall rating.`),
+          h('small', { class: 'muted key-note' }, h('i', { class: 'key-star' }, '★'), ` Key for a ${p.positions[0]}: these raise his overall rating, and level-ups train them automatically.`),
           h(
             'div',
             { class: 'attr-list' },
@@ -184,17 +184,6 @@ export function squadScreen(club: Club, onBack: () => void, coinsEl: () => HTMLE
               },
             },
             `Coaching +1 SP · ${skillPointCost(p)}`,
-          ),
-          h(
-            'button',
-            {
-              disabled: restCost(p) <= 0,
-              onclick: () => {
-                if (!restPlayer(club, p)) return toast('Not enough coins');
-                draw();
-              },
-            },
-            restCost(p) > 0 ? `Physio · ${restCost(p)}` : 'Fully fit',
           ),
           h(
             'button',

@@ -1,5 +1,5 @@
 import './style.css';
-import { h } from './ui/dom';
+import { h, toast } from './ui/dom';
 import { tacticsScreen } from './ui/tacticsScreen';
 import { matchScreen } from './ui/matchScreen';
 import { squadScreen } from './ui/squadScreen';
@@ -21,6 +21,8 @@ import { loadSkillIcons } from './ui/skillIcons';
 import { careerScreen, crest, roundScreen } from './ui/careerScreen';
 import { DIVISIONS, finishSeason, matchSide, nextOpponent, recordUserResult, rounds, seasonOver, simulateRound, startSeason, userFixture } from './game/career';
 import { Match } from './sim/match';
+import { cupScreen, shootoutScreen } from './ui/cupScreen';
+import { ROUND_NAMES, draftPick, finishTie, reachedName, shootout, startRun, takeBoon, tieSides } from './game/cup';
 
 const app = document.getElementById('app')!;
 let teardown: (() => void) | null = null;
@@ -88,7 +90,7 @@ function home(): void {
           tile('recruit', 'Recruit', 'Players, kits, balls & crests', () => show(storeScreen(club, home, coins))),
           tile('club', 'Club', 'Name, kits, crest & ball', () => show(squadScreen(club, home, coins, 'club'))),
           tile('career', 'Career', careerBlurb(), careerHub),
-          tile('cup', 'Cup Run', 'Roguelike runs · coming soon', null),
+          tile('cup', 'Cup Run', cupBlurb(), cupHub),
         ),
         adBoard(),
         // Starting over wipes everything, so it's a quiet link rather than a big tile.
@@ -300,6 +302,101 @@ async function playOutRound(): Promise<void> {
   await simulateRound(c, (_done, _total, f) => screen.update(f));
   saveClub(club);
   screen.done(careerHub);
+}
+
+// ---------------------------------------------------------------- cup runs
+
+/** Cup tile subtitle: the run in progress, or the best so far. */
+function cupBlurb(): string {
+  const run = club.cup;
+  if (run?.status === 'draft') return 'Draft in progress';
+  if (run?.status === 'active') return `${ROUND_NAMES[run.round]} next`;
+  const meta = club.cupMeta;
+  return meta && meta.runs ? `${reachedName(meta.best)} · ${meta.cupsWon} cup${meta.cupsWon === 1 ? '' : 's'}` : 'Draft a squad · win 5 knockout ties';
+}
+
+function cupHub(): void {
+  show(
+    cupScreen(club, {
+      onBack: home,
+      coinsEl: coins,
+      onStart: (formation) => {
+        if (!startRun(club, formation)) return toast('Not enough coins');
+        saveClub(club);
+        cupHub();
+      },
+      onPick: (i) => {
+        draftPick(club.cup!, i);
+        saveClub(club);
+        cupHub();
+      },
+      onTactics: () => {
+        const run = club.cup!;
+        show(
+          tacticsScreen({
+            team: run.squad,
+            tactics: run.squad.tactics,
+            title: 'Cup squad',
+            subtitle: `${ROUND_NAMES[run.round]} next · fitness carries over between ties, so rotate tired legs`,
+            confirmLabel: 'Save',
+            onConfirm: (t) => {
+              run.squad.tactics = t;
+              saveClub(club);
+              cupHub();
+            },
+            onCancel: cupHub,
+          }),
+        );
+      },
+      onPlay: () => {
+        const run = club.cup!;
+        const { home: homeSide, away, weather } = tieSides(run);
+        const screen = matchScreen({
+          home: homeSide,
+          away: { ...away, color: contrastingKit(homeSide.color, away.color) },
+          seed: (Date.now() ^ (Math.random() * 1e9)) >>> 0,
+          weather,
+          onExit: (m) => afterTie(m, homeSide, away),
+        });
+        show(screen.el, screen.destroy);
+      },
+      onQuickSim: () => {
+        const run = club.cup!;
+        const { home: homeSide, away, weather } = tieSides(run);
+        const m = new Match(homeSide, away, (Date.now() ^ (Math.random() * 1e9)) >>> 0, weather);
+        m.aiTeams = [0, 1];
+        m.simulateFull();
+        toast(`${ROUND_NAMES[run.round]}: ${homeSide.short} ${m.score[0]}–${m.score[1]} ${away.short}`);
+        afterTie(m, homeSide, away);
+      },
+      onBoon: (id) => {
+        const msg = takeBoon(club.cup!, id);
+        saveClub(club);
+        sound.reveal('gold');
+        toast(msg);
+        cupHub();
+      },
+      onNewRun: () => {
+        club.cup = undefined;
+        saveClub(club);
+        cupHub();
+      },
+    }),
+  );
+}
+
+/** A tie is over: a drawn one goes to penalties, then the run moves on (or ends). */
+function afterTie(m: Match, homeSide: TeamSetup, away: TeamSetup): void {
+  const run = club.cup!;
+  const settle = (pens?: { home: boolean[]; away: boolean[] }) => {
+    finishTie(club, m, pens);
+    saveClub(club);
+    if (run.status === 'won') sound.goal(true);
+    cupHub();
+  };
+  if (m.score[0] !== m.score[1]) return settle();
+  const pens = shootout(run, homeSide, away);
+  show(shootoutScreen(homeSide, away, pens, () => settle(pens)));
 }
 
 // Browsers only allow audio after a user gesture: wake it on the first tap, and give the main buttons a click.

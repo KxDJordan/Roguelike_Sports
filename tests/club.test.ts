@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { Rng } from '../src/sim/rng';
 import { Match } from '../src/sim/match';
 import { makeTeam } from '../src/data/generator';
-import { overall, xpToNext } from '../src/data/player';
+import { ARCHETYPE_OF, ARCHETYPE_WEIGHTS, AttrKey, overall, xpToNext } from '../src/data/player';
 import { cloneTactics } from '../src/tactics/instructions';
-import { Club, MIN_SQUAD, applyMatch, collectCosmetic, ensureLocker, equip, renameClub, sellPlayer, trainAttribute } from '../src/game/club';
+import { Club, LEVEL_UP_POINTS, MIN_SQUAD, applyMatch, levelUp, collectCosmetic, ensureLocker, equip, renameClub, sellPlayer, trainAttribute } from '../src/game/club';
 import { STARTER, kitById } from '../src/data/cosmetics';
 import { startSeason } from '../src/game/career';
 import { PACKS, openCosmetic, openPack } from '../src/game/packs';
@@ -55,7 +55,7 @@ describe('applyMatch', () => {
     expect(c.results).toHaveLength(1);
     const starter = c.team.squad.find((p) => p.id === c.team.tactics.lineup[5])!;
     expect(starter.form).toHaveLength(1);
-    expect(starter.condition).toBeLessThan(1);
+    for (const p of c.team.squad) expect(p.condition).toBe(1);
     expect(starter.xp + (starter.level - 1) * xpToNext(1)).toBeGreaterThan(0);
     expect(rep.motm).not.toBeNull();
   });
@@ -70,6 +70,22 @@ describe('progression', () => {
     expect(trainAttribute(c, p, 'tackling')).toBe(true);
     expect(p.attrs.tackling).toBe(was + 1);
     expect(trainAttribute(c, p, 'tackling')).toBe(false);
+  });
+
+  it('levelling up raises key attributes for the position automatically', () => {
+    const c = club();
+    const p = c.team.squad.find((q) => q.positions[0] === 'ST')!;
+    const before = { ...p.attrs };
+    const ovr = overall(p);
+    const rng = new Rng(7);
+    const gains: AttrKey[] = [];
+    for (let i = 0; i < 10; i++) gains.push(...levelUp(p, () => rng.next()).gains);
+    expect(gains).toHaveLength(10 * LEVEL_UP_POINTS);
+    const weights = ARCHETYPE_WEIGHTS[ARCHETYPE_OF.ST];
+    for (const k of gains) expect(weights[k]).toBeGreaterThanOrEqual(1);
+    const total = Object.keys(before).reduce((s, k) => s + p.attrs[k as AttrKey] - before[k as AttrKey], 0);
+    expect(total).toBe(gains.length);
+    expect(overall(p)).toBeGreaterThan(ovr);
   });
 
   it('sells a starter, refills the XI and respects the squad minimum', () => {

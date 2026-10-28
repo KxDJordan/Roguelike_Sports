@@ -1,9 +1,20 @@
 import { h } from './dom';
 import { playerCard } from './playerCard';
-import type { MatchReport } from '../game/club';
+import type { LevelUp, MatchReport } from '../game/club';
+import { SKILLS } from '../data/skills';
 import { sound } from '../audio/sound';
+import { ATTR_NAME } from './squadScreen';
 
 const ratingClass = (r: number) => (r >= 8 ? 'r-elite' : r >= 7 ? 'r-good' : r >= 6 ? 'r-ok' : 'r-poor');
+
+/** "+2 Finishing, +1 Pace · New skill: 💥 Power Shot" */
+function gainText(l: LevelUp): string {
+  const counts = new Map<string, number>();
+  for (const k of l.gains) counts.set(ATTR_NAME[k], (counts.get(ATTR_NAME[k]) ?? 0) + 1);
+  const stats = [...counts].map(([name, n]) => `+${n} ${name}`).join(', ');
+  const skill = l.skill ? SKILLS[l.skill as keyof typeof SKILLS] : null;
+  return skill ? `${stats} · New skill: ${skill.icon} ${skill.name}` : stats;
+}
 
 /** Post-match: result, rewards, ratings, man of the match and level-ups. */
 export function reportScreen(rep: MatchReport, club: { name: string; color: string }, onContinue: () => void): HTMLElement {
@@ -47,7 +58,7 @@ export function reportScreen(rep: MatchReport, club: { name: string; color: stri
               'div',
               { class: 'levelups' },
               h('div', { class: 'sub-title' }, 'Level up!'),
-              ...rep.levelUps.map((l) => h('div', { class: 'lvl-row pop-in' }, h('b', {}, l.player.name), h('span', {}, `Level ${l.level} · +2 skill points`))),
+              ...rep.levelUps.map((l) => h('div', { class: 'lvl-row pop-in' }, h('b', {}, `${l.player.name} · Lv ${l.level}`), h('span', {}, gainText(l)))),
             )
           : null,
       ),

@@ -1,11 +1,12 @@
 import { Rng } from '../sim/rng';
 import type { Match } from '../sim/match';
 import { TeamSetup, makeTeam } from '../data/generator';
-import { AttrKey, Player, familiarity, marketValue, normalizePlayer, overall, rarityFor, xpToNext } from '../data/player';
+import { ARCHETYPE_OF, ARCHETYPE_WEIGHTS, ATTR_KEYS, AttrKey, Player, familiarity, marketValue, normalizePlayer, overall, rarityFor, xpToNext } from '../data/player';
 import { grantSkills, migrateSkills, seededRand } from '../data/skills';
 import { FORMATIONS } from '../tactics/formations';
 import { playerRating } from './ratings';
 import type { Career } from './career';
+import type { CupMeta, CupRun } from './cup';
 import { CosmeticKind, DUPLICATE_COINS, STARTER, ballById, cosmetic, crestById, kitById } from '../data/cosmetics';
 import type { Rarity } from '../data/player';
 
@@ -29,6 +30,9 @@ export interface Club {
   locker?: Record<CosmeticKind, string[]>;
   /** What it's wearing. */
   look?: Record<CosmeticKind, string>;
+  /** The cup run in progress (or just finished), and lifetime cup records. */
+  cup?: CupRun;
+  cupMeta?: CupMeta;
   /** League career, once started. */
   career?: Career;
 }
@@ -48,8 +52,20 @@ export interface MatchReport {
   coins: { result: number; goals: number; total: number };
   ratings: RatedPlayer[];
   motm: RatedPlayer | null;
-  levelUps: { player: Player; level: number }[];
+  levelUps: LevelUp[];
 }
+
+export interface LevelUp {
+  player: Player;
+  level: number;
+  /** Attributes raised automatically, one entry per point. */
+  gains: AttrKey[];
+  /** A skill unlocked by stepping up a rarity. */
+  skill?: string;
+}
+
+/** Attribute points a player gains automatically on each level-up. */
+export const LEVEL_UP_POINTS = 2;
 
 export function newClub(): Club {
   const rng = new Rng((Date.now() ^ (Math.random() * 1e9)) >>> 0);
@@ -69,6 +85,8 @@ export function newClub(): Club {
 /** Bring a saved player up to date: new fields, and skills for players saved before skills existed. */
 function upgradePlayer(p: Player): void {
   normalizePlayer(p);
+  // Fitness now recovers fully between matches; older saves may hold tired players.
+  p.condition = 1;
   migrateSkills(p);
   grantSkills(p, seededRand(p.id));
 }
@@ -112,8 +130,8 @@ export function squadRating(team: TeamSetup): number {
 }
 
 /**
- * Fold a finished match into the club: rewards, ratings and form, XP and level-ups,
- * and fitness (players who played are tired; everyone recovers a little).
+ * Fold a finished match into the club: rewards, ratings and form, XP and level-ups
+ * (which train key attributes automatically). Everyone is back to full fitness for the next match.
  */
 export function applyMatch(club: Club, m: Match): MatchReport {
   const [gf, ga] = m.score;
@@ -130,30 +148,56 @@ export function applyMatch(club: Club, m: Match): MatchReport {
 
   const ratings: RatedPlayer[] = [];
   const levelUps: MatchReport['levelUps'] = [];
-  const played = new Set<string>();
   for (const sp of m.players) {
     if (sp.team !== 0) continue;
     const p = club.team.squad.find((q) => q.id === sp.data.id);
     if (!p) continue;
-    played.add(p.id);
     const minutes = m.minutesPlayed(sp);
     const rating = playerRating(m, sp);
     ratings.push({ player: p, rating, minutes, goals: sp.ps.goals, assists: sp.ps.assists });
     p.form = [...p.form, rating].slice(-5);
-    p.condition = Math.min(1, sp.stamina + 0.15);
     p.xp += Math.round(minutes * 0.8 + Math.max(0, rating - 6) * 25 + sp.ps.goals * 15);
     while (p.xp >= xpToNext(p.level)) {
       p.xp -= xpToNext(p.level);
       p.level++;
-      p.skillPoints += 2;
-      levelUps.push({ player: p, level: p.level });
+      levelUps.push(levelUp(p));
     }
   }
-  for (const p of club.team.squad) if (!played.has(p.id)) p.condition = Math.min(1, p.condition + 0.3);
+  for (const p of club.team.squad) p.condition = 1;
 
   ratings.sort((a, b) => b.rating - a.rating);
   saveClub(club);
   return { result, score: [gf, ga], opponent: m.teams[1].name, coins, ratings, motm: ratings[0] ?? null, levelUps };
+}
+
+/**
+ * Level-up training: raise key attributes for the player's position, favouring the
+ * heavier-weighted and the weaker ones so the profile fills out evenly.
+ */
+export function levelUp(p: Player, rand: () => number = Math.random): LevelUp {
+  const weights = ARCHETYPE_WEIGHTS[ARCHETYPE_OF[p.positions[0]]];
+  const gains: AttrKey[] = [];
+  const had = p.skills.length;
+  for (let i = 0; i < LEVEL_UP_POINTS; i++) {
+    const pool = ATTR_KEYS.filter((k) => (weights[k] ?? 0) >= 1 && p.attrs[k] < 99);
+    if (!pool.length) break;
+    const score = pool.map((k) => weights[k]! * (100 - p.attrs[k]));
+    let r = rand() * score.reduce((a, b) => a + b, 0);
+    let pick = pool[pool.length - 1];
+    for (let j = 0; j < pool.length; j++) {
+      r -= score[j];
+      if (r < 0) {
+        pick = pool[j];
+        break;
+      }
+    }
+    p.attrs[pick]++;
+    gains.push(pick);
+  }
+  p.rarity = rarityFor(overall(p));
+  // Stepping up a rarity unlocks another skill.
+  grantSkills(p, rand);
+  return { player: p, level: p.level, gains, skill: p.skills.length > had ? p.skills[p.skills.length - 1] : undefined };
 }
 
 /** Spend a skill point to raise one attribute. */
@@ -176,18 +220,6 @@ export function buySkillPoint(club: Club, p: Player): boolean {
   if (club.coins < cost) return false;
   club.coins -= cost;
   p.skillPoints++;
-  saveClub(club);
-  return true;
-}
-
-/** Rest a player: full fitness for coins. */
-export const restCost = (p: Player) => Math.round((1 - p.condition) * 300);
-
-export function restPlayer(club: Club, p: Player): boolean {
-  const cost = restCost(p);
-  if (cost <= 0 || club.coins < cost) return false;
-  club.coins -= cost;
-  p.condition = 1;
   saveClub(club);
   return true;
 }
